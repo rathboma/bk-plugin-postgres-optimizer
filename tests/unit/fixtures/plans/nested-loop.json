@@ -1,0 +1,70 @@
+[
+ {
+  "Plan": {
+   "Node Type": "Nested Loop",
+   "Parallel Aware": false,
+   "Async Capable": false,
+   "Join Type": "Inner",
+   "Startup Cost": 0.0,
+   "Total Cost": 4270.0,
+   "Plan Rows": 4,
+   "Plan Width": 66,
+   "Output": [
+    "c.id",
+    "c.email",
+    "c.region",
+    "c.created_at",
+    "o.id",
+    "o.customer_id",
+    "o.status",
+    "o.total",
+    "o.created_at"
+   ],
+   "Inner Unique": false,
+   "Join Filter": "(c.id = o.customer_id)",
+   "Plans": [
+    {
+     "Node Type": "Seq Scan",
+     "Parent Relationship": "Outer",
+     "Parallel Aware": false,
+     "Async Capable": false,
+     "Relation Name": "customers",
+     "Schema": "public",
+     "Alias": "c",
+     "Startup Cost": 0.0,
+     "Total Cost": 625.0,
+     "Plan Rows": 1,
+     "Plan Width": 36,
+     "Output": [
+      "c.id",
+      "c.email",
+      "c.region",
+      "c.created_at"
+     ],
+     "Filter": "(c.email = 'user5@example.com'::text)"
+    },
+    {
+     "Node Type": "Seq Scan",
+     "Parent Relationship": "Inner",
+     "Parallel Aware": false,
+     "Async Capable": false,
+     "Relation Name": "orders",
+     "Schema": "public",
+     "Alias": "o",
+     "Startup Cost": 0.0,
+     "Total Cost": 2145.0,
+     "Plan Rows": 120000,
+     "Plan Width": 30,
+     "Output": [
+      "o.id",
+      "o.customer_id",
+      "o.status",
+      "o.total",
+      "o.created_at"
+     ]
+    }
+   ]
+  },
+  "Query Identifier": -6444574072036585704
+ }
+]

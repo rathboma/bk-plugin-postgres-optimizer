@@ -1,0 +1,97 @@
+[
+ {
+  "Plan": {
+   "Node Type": "Hash Join",
+   "Parallel Aware": false,
+   "Async Capable": false,
+   "Join Type": "Inner",
+   "Startup Cost": 1131.0,
+   "Total Cost": 4969.04,
+   "Plan Rows": 120000,
+   "Plan Width": 29,
+   "Actual Startup Time": 11.675,
+   "Actual Total Time": 83.7,
+   "Actual Rows": 120000,
+   "Actual Loops": 1,
+   "Output": [
+    "o.id",
+    "c.email"
+   ],
+   "Inner Unique": true,
+   "Hash Cond": "(o.customer_id = c.id)",
+   "Plans": [
+    {
+     "Node Type": "Seq Scan",
+     "Parent Relationship": "Outer",
+     "Parallel Aware": false,
+     "Async Capable": false,
+     "Relation Name": "orders",
+     "Schema": "public",
+     "Alias": "o",
+     "Startup Cost": 0.0,
+     "Total Cost": 2145.0,
+     "Plan Rows": 120000,
+     "Plan Width": 12,
+     "Actual Startup Time": 0.008,
+     "Actual Total Time": 18.99,
+     "Actual Rows": 120000,
+     "Actual Loops": 1,
+     "Output": [
+      "o.id",
+      "o.customer_id"
+     ]
+    },
+    {
+     "Node Type": "Hash",
+     "Parent Relationship": "Inner",
+     "Parallel Aware": false,
+     "Async Capable": false,
+     "Startup Cost": 550.0,
+     "Total Cost": 550.0,
+     "Plan Rows": 30000,
+     "Plan Width": 25,
+     "Actual Startup Time": 11.095,
+     "Actual Total Time": 11.096,
+     "Actual Rows": 30000,
+     "Actual Loops": 1,
+     "Output": [
+      "c.email",
+      "c.id"
+     ],
+     "Hash Buckets": 2048,
+     "Original Hash Buckets": 2048,
+     "Hash Batches": 32,
+     "Original Hash Batches": 32,
+     "Peak Memory Usage": 73,
+     "Plans": [
+      {
+       "Node Type": "Seq Scan",
+       "Parent Relationship": "Outer",
+       "Parallel Aware": false,
+       "Async Capable": false,
+       "Relation Name": "customers",
+       "Schema": "public",
+       "Alias": "c",
+       "Startup Cost": 0.0,
+       "Total Cost": 550.0,
+       "Plan Rows": 30000,
+       "Plan Width": 25,
+       "Actual Startup Time": 0.004,
+       "Actual Total Time": 4.484,
+       "Actual Rows": 30000,
+       "Actual Loops": 1,
+       "Output": [
+        "c.email",
+        "c.id"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "Query Identifier": 1870200529806176484,
+  "Planning Time": 1.251,
+  "Triggers": [],
+  "Execution Time": 87.49
+ }
+]

@@ -1,0 +1,21 @@
+[
+ {
+  "Plan": {
+   "Node Type": "Seq Scan",
+   "Parallel Aware": false,
+   "Async Capable": false,
+   "Relation Name": "customers",
+   "Schema": "public",
+   "Alias": "customers",
+   "Startup Cost": 0.0,
+   "Total Cost": 700.0,
+   "Plan Rows": 150,
+   "Plan Width": 4,
+   "Output": [
+    "id"
+   ],
+   "Filter": "(lower(customers.email) = 'user5@example.com'::text)"
+  },
+  "Query Identifier": 1778831063026035429
+ }
+]

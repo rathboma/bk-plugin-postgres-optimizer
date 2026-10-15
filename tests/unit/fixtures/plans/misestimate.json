@@ -1,0 +1,31 @@
+[
+ {
+  "Plan": {
+   "Node Type": "Seq Scan",
+   "Parallel Aware": false,
+   "Async Capable": false,
+   "Relation Name": "events",
+   "Schema": "public",
+   "Alias": "events",
+   "Startup Cost": 0.0,
+   "Total Cost": 938.44,
+   "Plan Rows": 193,
+   "Plan Width": 68,
+   "Actual Startup Time": 2.145,
+   "Actual Total Time": 5.728,
+   "Actual Rows": 20000,
+   "Actual Loops": 1,
+   "Output": [
+    "id",
+    "kind",
+    "payload"
+   ],
+   "Filter": "(events.payload ~~ 'y%'::text)",
+   "Rows Removed by Filter": 0
+  },
+  "Query Identifier": -4340044958987146539,
+  "Planning Time": 0.302,
+  "Triggers": [],
+  "Execution Time": 6.337
+ }
+]

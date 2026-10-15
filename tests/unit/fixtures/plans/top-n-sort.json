@@ -1,0 +1,65 @@
+[
+ {
+  "Plan": {
+   "Node Type": "Limit",
+   "Parallel Aware": false,
+   "Async Capable": false,
+   "Startup Cost": 4738.16,
+   "Total Cost": 4738.18,
+   "Plan Rows": 10,
+   "Plan Width": 30,
+   "Output": [
+    "id",
+    "customer_id",
+    "status",
+    "total",
+    "created_at"
+   ],
+   "Plans": [
+    {
+     "Node Type": "Sort",
+     "Parent Relationship": "Outer",
+     "Parallel Aware": false,
+     "Async Capable": false,
+     "Startup Cost": 4738.16,
+     "Total Cost": 5038.16,
+     "Plan Rows": 120000,
+     "Plan Width": 30,
+     "Output": [
+      "id",
+      "customer_id",
+      "status",
+      "total",
+      "created_at"
+     ],
+     "Sort Key": [
+      "orders.created_at DESC"
+     ],
+     "Plans": [
+      {
+       "Node Type": "Seq Scan",
+       "Parent Relationship": "Outer",
+       "Parallel Aware": false,
+       "Async Capable": false,
+       "Relation Name": "orders",
+       "Schema": "public",
+       "Alias": "orders",
+       "Startup Cost": 0.0,
+       "Total Cost": 2145.0,
+       "Plan Rows": 120000,
+       "Plan Width": 30,
+       "Output": [
+        "id",
+        "customer_id",
+        "status",
+        "total",
+        "created_at"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "Query Identifier": 5702482702107594635
+ }
+]
