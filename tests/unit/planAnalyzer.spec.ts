@@ -74,6 +74,19 @@ describe("analyzePlan", () => {
     expect(suggestIndexes(candidates, advisor())[0].columns).toEqual(["created_at DESC"]);
   });
 
+  it("sees through Gather Merge in parallel ORDER BY ... LIMIT plans", () => {
+    const { raw, root } = load("parallel-top-n");
+    const [s] = suggestIndexes(analyzePlan(root, raw, ctx(false)).candidates, advisor());
+    expect(s.columns).toEqual(["customer_id", "created_at DESC"]);
+  });
+
+  it("doesn't call parallel workers repeated scans", () => {
+    const { raw, root } = load("parallel-analyze");
+    const { issues, candidates } = analyzePlan(root, raw, ctx(true));
+    expect(issues.map((i) => i.title)).toContain("Sequential scan on public.orders");
+    expect(candidates[0].range.map((c) => c.column)).toEqual(["created_at"]);
+  });
+
   it("suggests an expression index for lower(column)", () => {
     const { raw, root } = load("lower-email");
     const [s] = suggestIndexes(analyzePlan(root, raw, ctx(false)).candidates, advisor());

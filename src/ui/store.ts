@@ -8,7 +8,6 @@ import type {
   OptimizerSettings,
   QuerySort,
   QueryStatsResult,
-  Row,
 } from "@/core/types";
 import { CATEGORIES, DEFAULT_SETTINGS } from "@/core/types";
 import { allFindings, runAnalysis, type AnalysisReport } from "@/core/engine";
@@ -215,11 +214,6 @@ export async function saveSettings(next: OptimizerSettings) {
   await host.saveItem("settings", { ...next });
   state.settingsOpen = false;
   await runChecks();
-}
-
-export async function showRows(rows: Row[]) {
-  if (!rows.length) return;
-  await host.showRows(rows);
 }
 
 export const actions = {

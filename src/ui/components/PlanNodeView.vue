@@ -26,8 +26,10 @@ const executed = computed(() => props.node.actualRows !== undefined);
 const share = computed(() =>
   executed.value && props.totalMs && props.node.selfMs !== undefined ? props.node.selfMs / props.totalMs : 0,
 );
+// Only flag scans: that's where a misestimate starts and where ANALYZE or
+// extended statistics can fix it. Group-count guesses on aggregates aren't actionable.
 const misestimate = computed(() => {
-  if (!executed.value) return null;
+  if (!executed.value || !props.node.relation) return null;
   const est = Math.max(1, props.node.estimatedRows);
   const act = Math.max(1, props.node.actualRows!);
   const f = Math.max(est / act, act / est);

@@ -100,7 +100,9 @@ function topNSortKeys(scan: PlanNode, parents: Map<number, PlanNode | null>): In
   // Allow a Gather / Gather Merge between the sort and the scan.
   while (p && (p.nodeType === "Gather" || p.nodeType === "Gather Merge")) p = parents.get(p.id) ?? null;
   if (!p || (p.nodeType !== "Sort" && p.nodeType !== "Incremental Sort")) return [];
-  const above = parents.get(p.id);
+  // Parallel plans put a Gather Merge between the Limit and the Sort.
+  let above = parents.get(p.id) ?? null;
+  while (above && (above.nodeType === "Gather" || above.nodeType === "Gather Merge")) above = parents.get(above.id) ?? null;
   if (!above || above.nodeType !== "Limit") return [];
   const keys = (p.raw["Sort Key"] as string[] | undefined) ?? [];
   const out: IndexCandidate["sort"] = [];
@@ -137,7 +139,11 @@ export function analyzePlan(root: PlanNode, explain: RawExplain, ctx: AnalyzeCon
         ...conditionsFor(rawString(node, "Filter"), alias),
         ...conditionsFor(joinFilter, alias),
       ];
-      const loops = node.loops ?? (innerOfLoop ? Math.max(1, Math.round(innerOfLoop.children[0].estimatedRows)) : 1);
+      // Parallel workers each scan part of the table, so their loops aren't repeated scans.
+      const parallel = node.raw["Parallel Aware"] === true;
+      const loops = parallel
+        ? 1
+        : node.loops ?? (innerOfLoop ? Math.max(1, Math.round(innerOfLoop.children[0].estimatedRows)) : 1);
       // Per loop: rows produced vs rows looked at.
       let out = ctx.analyzed && node.actualRows !== undefined ? node.actualRows : node.estimatedRows;
       let examined = ctx.analyzed

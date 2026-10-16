@@ -2,7 +2,7 @@
 import { ref } from "vue";
 import type { QuerySort, QueryStat } from "@/core/types";
 import { formatBytes, formatMs, formatNumber, formatPercent, oneLine } from "@/core/format";
-import { actions, analyzeQuery, loadTopQueries, showRows, state } from "../store";
+import { actions, analyzeQuery, loadTopQueries, state } from "../store";
 import Icon from "./Icon.vue";
 import NoticeCard from "./NoticeCard.vue";
 import SqlBlock from "./SqlBlock.vue";
@@ -26,21 +26,6 @@ function slowClass(q: QueryStat) {
   return "";
 }
 
-function exportRows() {
-  const rows = state.topQueries.result?.queries ?? [];
-  void showRows(
-    rows.map((q) => ({
-      query: q.query,
-      calls: q.calls,
-      total_ms: Math.round(q.totalTimeMs),
-      mean_ms: Number(q.meanTimeMs.toFixed(2)),
-      percent_of_total: q.percentOfTotal !== undefined ? Number(q.percentOfTotal.toFixed(2)) : null,
-      rows: q.rows,
-      cache_hit_ratio: q.cacheHitRatio !== null && q.cacheHitRatio !== undefined ? Number(q.cacheHitRatio.toFixed(4)) : null,
-      user: q.user ?? null,
-    })),
-  );
-}
 </script>
 
 <template>
@@ -67,9 +52,6 @@ function exportRows() {
       </div>
       <span class="spacer" />
       <span v-if="state.topQueries.loading" class="spinner" />
-      <button class="btn btn-sm" :disabled="!state.topQueries.result?.queries.length" @click="exportRows">
-        <Icon name="data" :size="14" /> Show in result panel
-      </button>
       <button class="icon-btn" title="Refresh" @click="loadTopQueries()"><Icon name="refresh" :size="16" /></button>
     </div>
 

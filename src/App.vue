@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { CATEGORIES, type CategoryId } from "@/core/types";
 import AnalyzerView from "@/ui/components/AnalyzerView.vue";
 import CategoryView from "@/ui/components/CategoryView.vue";
@@ -19,6 +19,13 @@ import {
 } from "@/ui/store";
 
 onMounted(init);
+
+// Start each view at the top instead of wherever the last one was scrolled to.
+const content = ref<HTMLElement | null>(null);
+watch(
+  () => state.view,
+  () => content.value?.scrollTo({ top: 0 }),
+);
 
 const isCategory = (v: View): v is CategoryId => CATEGORIES.some((c) => c.id === v);
 
@@ -125,7 +132,7 @@ const lastRun = computed(() =>
       </label>
     </nav>
 
-    <main class="content">
+    <main ref="content" class="content">
       <div class="content-inner">
         <OverviewView v-if="state.view === 'overview'" />
         <CategoryView v-else-if="isCategory(state.view)" :category="state.view" />

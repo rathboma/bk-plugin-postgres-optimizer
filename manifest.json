@@ -15,7 +15,7 @@
       {
         "id": "optimizer",
         "name": "Postgres Optimizer",
-        "type": "shell-tab",
+        "type": "base-tab",
         "entry": "dist/index.html"
       }
     ],

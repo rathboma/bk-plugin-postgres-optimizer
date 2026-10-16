@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import type { CheckResult } from "@/core/types";
 import { formatMs } from "@/core/format";
-import { isFindingDismissed, showRows, state } from "../store";
+import { isFindingDismissed, state } from "../store";
 import FindingCard from "./FindingCard.vue";
 import Icon from "./Icon.vue";
+import RawDataTable from "./RawDataTable.vue";
 
 const props = defineProps<{ result: CheckResult }>();
+
+const showData = ref(false);
 
 const visible = computed(() =>
   props.result.findings.filter((f) => state.showDismissed || !isFindingDismissed(f)),
@@ -43,14 +46,16 @@ const status = computed(() => {
       <button
         v-if="result.rows.length"
         class="icon-btn"
-        title="Show the raw data in the result panel"
-        @click="showRows(result.rows)"
+        :class="{ on: showData }"
+        :title="showData ? 'Hide the raw data' : 'Show the raw data behind this check'"
+        @click="showData = !showData"
       >
         <Icon name="data" :size="15" />
       </button>
     </header>
     <p class="muted desc">{{ result.description }}</p>
     <p v-if="result.message" class="message" :class="{ error: result.status === 'error' }">{{ result.message }}</p>
+    <RawDataTable v-if="showData" :rows="result.rows" />
     <div v-if="visible.length" class="list">
       <FindingCard v-for="f in visible" :key="f.key" :finding="f" />
     </div>
@@ -73,6 +78,10 @@ const status = computed(() => {
 }
 .desc {
   margin: 0;
+}
+.icon-btn.on {
+  background: var(--c-hover);
+  color: var(--c-text-strong);
 }
 .duration {
   font-size: 11px;

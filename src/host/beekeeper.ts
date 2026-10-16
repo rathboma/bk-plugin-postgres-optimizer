@@ -6,7 +6,6 @@
 import {
   appStorage,
   clipboard,
-  expandTableResult,
   getAppInfo,
   getConnectionInfo,
   getViewContext,
@@ -90,24 +89,6 @@ export async function notifyError(message: string): Promise<void> {
 
 export async function openLink(url: string): Promise<void> {
   await openExternal(url);
-}
-
-/** Show rows in the shell tab's result panel at the bottom. */
-export async function showRows(rows: Row[]): Promise<void> {
-  const columns = [...new Set(rows.flatMap((r) => Object.keys(r)))];
-  await expandTableResult([
-    {
-      fields: columns.map((name) => ({ id: name, name })),
-      rows: rows.map((r) => {
-        const out: Record<string, unknown> = {};
-        for (const c of columns) {
-          const v = r[c];
-          out[c] = v !== null && typeof v === "object" ? JSON.stringify(v) : v;
-        }
-        return out;
-      }),
-    },
-  ]);
 }
 
 export async function setTitle(title: string): Promise<void> {
