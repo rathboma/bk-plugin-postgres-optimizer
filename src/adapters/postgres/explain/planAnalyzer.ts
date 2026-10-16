@@ -1,10 +1,9 @@
 import type { PlanIssue, PlanNode } from "@/core/types";
-import { formatBytes, formatMs, formatNumber, formatPercent } from "@/core/format";
-import { qualifiedName, quoteIdent } from "../sql";
+import { formatNumber, formatPercent } from "@/core/format";
+import { qualifiedName } from "../sql";
 import type { Condition } from "./filterParser";
 import { conditionsFor, parseSortKey } from "./filterParser";
-import type { RawExplain } from "./planModel";
-import { rawNumber, rawString, walk } from "./planModel";
+import { rawString, walk } from "./planModel";
 
 /** A place in the plan where an index on `relation` could help. */
 export interface IndexCandidate {
@@ -28,7 +27,6 @@ export interface IndexCandidate {
 }
 
 export interface AnalyzeContext {
-  analyzed: boolean;
   /** Estimated rows per relation, keyed by `schema.table` (lowercase). */
   tableRows: Map<string, number>;
   largeTableRows: number;
@@ -66,23 +64,11 @@ function splitConditions(conds: Condition[]) {
 const SCAN_TYPES = new Set(["Seq Scan", "Parallel Seq Scan"]);
 const INDEX_TYPES = new Set(["Index Scan", "Index Only Scan", "Bitmap Heap Scan"]);
 
-/** Rows produced by a node across all loops. */
-function rowsOut(node: PlanNode, analyzed: boolean): number {
-  return analyzed && node.actualRows !== undefined ? node.actualRows * (node.loops || 1) : node.estimatedRows;
-}
-
-/** Rows a filtering node threw away across all loops (only known after ANALYZE). */
-function rowsRemoved(node: PlanNode): number {
-  return (rawNumber(node, "Rows Removed by Filter") ?? 0) * (node.loops || 1);
-}
-
 /**
- * Rows an index-driven scan fetched and then discarded with its Filter.
- * Known exactly after ANALYZE; for estimated plans only bitmap scans tell us,
- * through the row estimate of their Bitmap Index Scan children.
+ * Rows a bitmap scan fetched and then discarded with its Filter, estimated
+ * from the row estimate of its Bitmap Index Scan children.
  */
-function rowsDiscardedAfterIndex(node: PlanNode, analyzed: boolean): { removed: number; out: number } | null {
-  if (analyzed) return { removed: rowsRemoved(node), out: rowsOut(node, true) };
+function rowsDiscardedAfterIndex(node: PlanNode): { removed: number; out: number } | null {
   if (node.nodeType !== "Bitmap Heap Scan" || !node.children.length) return null;
   const bitmapRows = (n: PlanNode): number =>
     n.nodeType === "BitmapAnd"
@@ -115,12 +101,11 @@ function topNSortKeys(scan: PlanNode, parents: Map<number, PlanNode | null>): In
   return out;
 }
 
-export function analyzePlan(root: PlanNode, explain: RawExplain, ctx: AnalyzeContext): PlanAnalysis {
+export function analyzePlan(root: PlanNode, ctx: AnalyzeContext): PlanAnalysis {
   const issues: PlanIssue[] = [];
   const candidates: IndexCandidate[] = [];
   const parents = new Map<number, PlanNode | null>();
   walk(root, (n, parent) => parents.set(n.id, parent));
-  const executionMs = explain["Execution Time"];
 
   walk(root, (node) => {
     const alias = node.relation?.alias ?? node.relation?.name;
@@ -139,21 +124,16 @@ export function analyzePlan(root: PlanNode, explain: RawExplain, ctx: AnalyzeCon
         ...conditionsFor(rawString(node, "Filter"), alias),
         ...conditionsFor(joinFilter, alias),
       ];
-      // Parallel workers each scan part of the table, so their loops aren't repeated scans.
-      const parallel = node.raw["Parallel Aware"] === true;
-      const loops = parallel
-        ? 1
-        : node.loops ?? (innerOfLoop ? Math.max(1, Math.round(innerOfLoop.children[0].estimatedRows)) : 1);
+      // Parallel workers each scan part of the table, so their scans aren't repeated.
+      const loops =
+        innerOfLoop && node.raw["Parallel Aware"] !== true
+          ? Math.max(1, Math.round(innerOfLoop.children[0].estimatedRows))
+          : 1;
       // Per loop: rows produced vs rows looked at.
-      let out = ctx.analyzed && node.actualRows !== undefined ? node.actualRows : node.estimatedRows;
-      let examined = ctx.analyzed
-        ? out + (rawNumber(node, "Rows Removed by Filter") ?? 0)
-        : tableRows ?? 0;
-      if (innerOfLoop && joinFilter) {
-        // Rows that survive the join filter, per outer row.
-        out = (ctx.analyzed && innerOfLoop.actualRows !== undefined ? innerOfLoop.actualRows : innerOfLoop.estimatedRows) / loops;
-        examined = ctx.analyzed && node.actualRows !== undefined ? node.actualRows : examined;
-      }
+      let out = node.estimatedRows;
+      const examined = tableRows ?? 0;
+      // Rows that survive the join filter, per outer row.
+      if (innerOfLoop && joinFilter) out = innerOfLoop.estimatedRows / loops;
       const selectivity = examined > 0 ? out / examined : 1;
       const sort = topNSortKeys(node, parents);
 
@@ -184,14 +164,13 @@ export function analyzePlan(root: PlanNode, explain: RawExplain, ctx: AnalyzeCon
             `Reads every row of a ${formatNumber(tableRows)} row table` +
             (filter ? ` and keeps ${formatPercent(selectivity * 100, selectivity < 0.01 ? 2 : 1)} of them (filter: ${filter}).` : ".") +
             " An index on the filtered columns lets PostgreSQL jump straight to the matching rows.",
-          nodeId: node.id,
         });
       }
     }
 
     // --- Index scans that still throw away most rows -----------------------
     const indexFilterRows =
-      large && INDEX_TYPES.has(node.nodeType) && node.relation ? rowsDiscardedAfterIndex(node, ctx.analyzed) : null;
+      large && INDEX_TYPES.has(node.nodeType) && node.relation ? rowsDiscardedAfterIndex(node) : null;
     if (indexFilterRows && node.relation) {
       const { removed, out } = indexFilterRows;
       const filter = rawString(node, "Filter");
@@ -220,134 +199,13 @@ export function analyzePlan(root: PlanNode, explain: RawExplain, ctx: AnalyzeCon
           severity: "warning",
           title: `${node.nodeType} on ${relName(node)} discards most rows it reads`,
           description:
-            `The index narrows the search to ${ctx.analyzed ? "" : "an estimated "}${formatNumber(out + removed)} rows, ` +
+            `The index narrows the search to an estimated ${formatNumber(out + removed)} rows, ` +
             `then the filter (${filter}) throws away ${formatNumber(removed)}. ` +
             "A multicolumn index that also covers the filtered columns avoids reading them.",
-          nodeId: node.id,
         });
       }
-    }
-
-    // --- Misestimates -------------------------------------------------------
-    if (ctx.analyzed && node.actualRows !== undefined && node.relation) {
-      const est = Math.max(1, node.estimatedRows);
-      const act = Math.max(1, node.actualRows);
-      const factor = Math.max(est / act, act / est);
-      if (factor >= 10 && Math.max(est, act) >= 1000) {
-        const table = relName(node);
-        const filterCols = conditionsFor(rawString(node, "Filter") ?? rawString(node, "Index Cond"), alias)
-          .map((c) => c.column);
-        const uniqueCols = [...new Set(filterCols)];
-        issues.push({
-          severity: "warning",
-          title: `Row estimate for ${table} is off by ${formatNumber(Math.round(factor))}x`,
-          description:
-            `The planner expected ${formatNumber(node.estimatedRows)} rows but got ${formatNumber(node.actualRows)}. ` +
-            "Bad estimates lead to bad join orders and the wrong scan types. Refresh statistics first" +
-            (uniqueCols.length > 1 ? "; if the filtered columns are correlated, extended statistics can help." : "."),
-          nodeId: node.id,
-          fix: {
-            title: "Refresh statistics",
-            sql:
-              `ANALYZE ${table};` +
-              (uniqueCols.length > 1
-                ? `\n\n-- If the estimate is still off, tell the planner these columns are correlated:\n` +
-                  `CREATE STATISTICS ON ${uniqueCols.map(quoteIdent).join(", ")} FROM ${table};\nANALYZE ${table};`
-                : ""),
-            safety: "safe",
-          },
-        });
-      }
-    }
-
-    // --- Memory spills ------------------------------------------------------
-    if (rawString(node, "Sort Space Type") === "Disk") {
-      const kb = rawNumber(node, "Sort Space Used") ?? 0;
-      const mb = Math.max(4, Math.ceil((kb * 2) / 1024));
-      issues.push({
-        severity: "warning",
-        title: `Sort spilled ${formatBytes(kb * 1024)} to disk`,
-        description:
-          `The sort (${rawString(node, "Sort Key") ?? ""}) didn't fit in work_mem. An index that returns rows in this order ` +
-          "avoids the sort entirely; otherwise give the query more memory.",
-        nodeId: node.id,
-        fix: { title: "Raise work_mem for this session", sql: `SET work_mem = '${mb}MB';`, safety: "safe" },
-      });
-    }
-    const batches = rawNumber(node, "Hash Batches");
-    if (node.nodeType === "Hash" && batches !== undefined && batches > 1) {
-      const peak = rawNumber(node, "Peak Memory Usage") ?? 0;
-      issues.push({
-        severity: batches >= 8 ? "warning" : "info",
-        title: `Hash table split into ${batches} batches`,
-        description: "The hash didn't fit in work_mem, so it was written to disk in batches.",
-        nodeId: node.id,
-        fix: {
-          title: "Raise work_mem for this session",
-          sql: `SET work_mem = '${Math.max(8, Math.ceil((peak * batches * 1.5) / 1024))}MB';`,
-          safety: "safe",
-        },
-      });
-    }
-    if ((rawNumber(node, "Lossy Heap Blocks") ?? 0) > 0) {
-      issues.push({
-        severity: "info",
-        title: "Bitmap scan went lossy",
-        description:
-          "The bitmap didn't fit in work_mem, so PostgreSQL had to recheck every row on some pages.",
-        nodeId: node.id,
-      });
-    }
-
-    // --- Index-only scans that hit the heap ---------------------------------
-    const heapFetches = rawNumber(node, "Heap Fetches");
-    if (node.nodeType === "Index Only Scan" && heapFetches !== undefined && ctx.analyzed) {
-      const out = rowsOut(node, true);
-      if (heapFetches >= 1000 && heapFetches >= out * 0.5) {
-        issues.push({
-          severity: "info",
-          title: `Index-only scan on ${relName(node)} still read the table ${formatNumber(heapFetches)} times`,
-          description:
-            "The visibility map is out of date, so PostgreSQL has to check the table anyway. Vacuuming more often fixes this.",
-          nodeId: node.id,
-          fix: { title: "Vacuum the table", sql: `VACUUM (ANALYZE) ${relName(node)};`, safety: "safe" },
-        });
-      }
-    }
-
-    // --- Parallel workers that never started --------------------------------
-    const planned = rawNumber(node, "Workers Planned");
-    const launched = rawNumber(node, "Workers Launched");
-    if (planned !== undefined && launched !== undefined && launched < planned) {
-      issues.push({
-        severity: "info",
-        title: `Only ${launched} of ${planned} parallel workers started`,
-        description:
-          "The server ran out of background workers (max_parallel_workers / max_worker_processes) so the query ran with less parallelism than planned.",
-        nodeId: node.id,
-      });
     }
   });
-
-  // --- Whole-query issues ----------------------------------------------------
-  const jitTotal = Number((explain.JIT?.["Timing"] as Record<string, unknown> | undefined)?.["Total"] ?? 0);
-  if (executionMs !== undefined && jitTotal > 0 && jitTotal >= executionMs * 0.3 && jitTotal >= 20) {
-    issues.push({
-      severity: "warning",
-      title: `JIT compilation took ${formatMs(jitTotal)} of ${formatMs(executionMs)}`,
-      description: "Compiling this query took longer than it saved. Turning JIT off for short queries is usually faster.",
-      fix: { title: "Turn JIT off for this session", sql: "SET jit = off;", safety: "safe" },
-    });
-  }
-  const planningMs = explain["Planning Time"];
-  if (planningMs !== undefined && executionMs !== undefined && planningMs > 50 && planningMs > executionMs * 2) {
-    issues.push({
-      severity: "info",
-      title: `Planning took ${formatMs(planningMs)}, longer than execution`,
-      description:
-        "Large IN lists, many joined tables or many partitions make planning expensive. Prepared statements let PostgreSQL reuse a plan.",
-    });
-  }
 
   return { issues, candidates };
 }

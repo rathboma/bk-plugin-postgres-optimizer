@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { analyzePlan, relationKey } from "@/adapters/postgres/explain/planAnalyzer";
-import { findNodes, normalizePlan, unwrapExplain, walk } from "@/adapters/postgres/explain/planModel";
+import { normalizePlan, unwrapExplain } from "@/adapters/postgres/explain/planModel";
 import { chooseColumns, equalityRows, findCoveringIndex, suggestIndexes } from "@/adapters/postgres/explain/indexAdvisor";
 import type { IndexInfo } from "@/adapters/postgres/indexCatalog";
 
@@ -18,7 +18,7 @@ const tableRows = new Map([
   [relationKey("public", "customers"), 30_000],
   [relationKey("public", "events"), 20_000],
 ]);
-const ctx = (analyzed: boolean) => ({ analyzed, tableRows, largeTableRows: 10_000 });
+const ctx = { tableRows, largeTableRows: 10_000 };
 
 const advisor = (indexes: IndexInfo[] = []) => ({
   indexes: new Map([[relationKey("public", "orders"), indexes]]),
@@ -31,8 +31,8 @@ const advisor = (indexes: IndexInfo[] = []) => ({
 
 describe("analyzePlan", () => {
   it("flags a filtered seq scan and proposes its columns", () => {
-    const { raw, root } = load("seq-scan-filter");
-    const { issues, candidates } = analyzePlan(root, raw, ctx(false));
+    const { root } = load("seq-scan-filter");
+    const { issues, candidates } = analyzePlan(root, ctx);
     expect(issues[0].title).toBe("Sequential scan on public.orders");
     expect(candidates).toHaveLength(1);
     expect(candidates[0].equality.map((c) => c.column)).toEqual(["customer_id"]);
@@ -40,22 +40,22 @@ describe("analyzePlan", () => {
   });
 
   it("flags a bitmap scan whose filter discards most of what the index found", () => {
-    const { raw, root } = load("bitmap-filter");
-    const { issues, candidates } = analyzePlan(root, raw, ctx(false));
+    const { root } = load("bitmap-filter");
+    const { issues, candidates } = analyzePlan(root, ctx);
     expect(issues[0].title).toBe("Bitmap Heap Scan on public.orders discards most rows it reads");
     expect(candidates[0].equality.map((c) => c.column).sort()).toEqual(["customer_id", "status"]);
   });
 
   it("orders equality columns by selectivity and stops once rows are few", () => {
-    const { raw, root } = load("bitmap-filter");
-    const [suggestion] = suggestIndexes(analyzePlan(root, raw, ctx(false)).candidates, advisor());
+    const { root } = load("bitmap-filter");
+    const [suggestion] = suggestIndexes(analyzePlan(root, ctx).candidates, advisor());
     // customer_id narrows 120K rows to ~4, so status adds nothing.
     expect(suggestion.columns).toEqual(["customer_id"]);
     expect(suggestion.ddl).toBe("CREATE INDEX CONCURRENTLY orders_customer_id_idx\n  ON public.orders (customer_id);");
   });
 
   it("marks a suggestion covered by an existing index", () => {
-    const { raw, root } = load("bitmap-filter");
+    const { root } = load("bitmap-filter");
     const existing = {
       name: "orders_customer_id_status_idx",
       valid: true,
@@ -63,75 +63,49 @@ describe("analyzePlan", () => {
       method: "btree",
       keyColumns: ["customer_id", "status"],
     } as unknown as IndexInfo;
-    const [suggestion] = suggestIndexes(analyzePlan(root, raw, ctx(false)).candidates, advisor([existing]));
+    const [suggestion] = suggestIndexes(analyzePlan(root, ctx).candidates, advisor([existing]));
     expect(suggestion.coveredBy).toBe("orders_customer_id_status_idx");
   });
 
   it("suggests an index for ORDER BY ... LIMIT over a full sort", () => {
-    const { raw, root } = load("top-n-sort");
-    const { candidates } = analyzePlan(root, raw, ctx(false));
+    const { root } = load("top-n-sort");
+    const { candidates } = analyzePlan(root, ctx);
     expect(candidates[0].sort).toEqual([{ column: "created_at", expression: undefined, desc: true }]);
     expect(suggestIndexes(candidates, advisor())[0].columns).toEqual(["created_at DESC"]);
   });
 
   it("sees through Gather Merge in parallel ORDER BY ... LIMIT plans", () => {
-    const { raw, root } = load("parallel-top-n");
-    const [s] = suggestIndexes(analyzePlan(root, raw, ctx(false)).candidates, advisor());
+    const { root } = load("parallel-top-n");
+    const [s] = suggestIndexes(analyzePlan(root, ctx).candidates, advisor());
     expect(s.columns).toEqual(["customer_id", "created_at DESC"]);
   });
 
-  it("doesn't call parallel workers repeated scans", () => {
-    const { raw, root } = load("parallel-analyze");
-    const { issues, candidates } = analyzePlan(root, raw, ctx(true));
-    expect(issues.map((i) => i.title)).toContain("Sequential scan on public.orders");
-    expect(candidates[0].range.map((c) => c.column)).toEqual(["created_at"]);
-  });
-
   it("suggests an expression index for lower(column)", () => {
-    const { raw, root } = load("lower-email");
-    const [s] = suggestIndexes(analyzePlan(root, raw, ctx(false)).candidates, advisor());
+    const { root } = load("lower-email");
+    const [s] = suggestIndexes(analyzePlan(root, ctx).candidates, advisor());
     expect(s.columns).toEqual(["(lower(email))"]);
     expect(s.ddl).toContain("ON public.customers ((lower(email)))");
   });
 
   it("suggests a trigram index for LIKE with a leading wildcard", () => {
-    const { raw, root } = load("trigram");
-    const [s] = suggestIndexes(analyzePlan(root, raw, ctx(false)).candidates, advisor());
+    const { root } = load("trigram");
+    const [s] = suggestIndexes(analyzePlan(root, ctx).candidates, advisor());
     expect(s.method).toBe("gin");
     expect(s.ddl).toContain("CREATE EXTENSION IF NOT EXISTS pg_trgm");
     expect(s.ddl).toContain("USING gin (email gin_trgm_ops)");
   });
 
   it("uses the nested loop's join filter for the inner scan", () => {
-    const { raw, root } = load("nested-loop");
-    const { candidates } = analyzePlan(root, raw, ctx(false));
+    const { root } = load("nested-loop");
+    const { candidates } = analyzePlan(root, ctx);
     const orders = candidates.find((c) => c.table === "orders");
     expect(orders?.equality.map((c) => c.column)).toEqual(["customer_id"]);
   });
 
-  it("reports a sort that spilled to disk with a work_mem fix", () => {
-    const { raw, root } = load("sort-spill");
-    const issue = analyzePlan(root, raw, ctx(true)).issues.find((i) => i.title.startsWith("Sort spilled"));
-    expect(issue?.fix?.sql).toMatch(/^SET work_mem = '\d+MB';$/);
-  });
-
-  it("reports a hash split into batches", () => {
-    const { raw, root } = load("hash-batches");
-    const issue = analyzePlan(root, raw, ctx(true)).issues.find((i) => i.title.startsWith("Hash table split"));
-    expect(issue?.title).toBe("Hash table split into 32 batches");
-  });
-
-  it("reports row estimates that are far off", () => {
-    const { raw, root } = load("misestimate");
-    const issue = analyzePlan(root, raw, ctx(true)).issues.find((i) => i.title.includes("Row estimate"));
-    expect(issue?.title).toMatch(/^Row estimate for public\.events is off by \d+x$/);
-    expect(issue?.fix?.sql).toContain("ANALYZE public.events;");
-  });
-
   it("does not suggest indexes for small tables", () => {
     for (const name of ["seq-scan-filter", "bitmap-filter"]) {
-      const { raw, root } = load(name);
-      const { candidates, issues } = analyzePlan(root, raw, { ...ctx(false), largeTableRows: 1_000_000 });
+      const { root } = load(name);
+      const { candidates, issues } = analyzePlan(root, { ...ctx, largeTableRows: 1_000_000 });
       expect(candidates).toEqual([]);
       expect(issues).toEqual([]);
     }
@@ -139,21 +113,10 @@ describe("analyzePlan", () => {
 });
 
 describe("plan model", () => {
-  it("computes self time for executed plans", () => {
+  it("labels nodes", () => {
     const { root } = load("hash-batches");
-    expect(root.actualTotalMs).toBeGreaterThan(0);
-    expect(root.selfMs).toBeGreaterThanOrEqual(0);
-    expect(root.selfMs!).toBeLessThanOrEqual(root.actualTotalMs!);
     expect(root.label).toBe("Hash Join");
     expect(root.children[0].label).toBe("Seq Scan on public.orders o");
-  });
-
-  it("counts parallel workers' time once, not once per worker", () => {
-    const { raw, root } = load("parallel-analyze");
-    const executionMs = Number((raw as { "Execution Time": number })["Execution Time"]);
-    walk(root, (n) => expect(n.actualTotalMs!).toBeLessThanOrEqual(executionMs));
-    const scan = findNodes(root, (n) => n.nodeType === "Seq Scan")[0];
-    expect(scan.actualTotalMs).toBeCloseTo(47.778, 1);
   });
 });
 

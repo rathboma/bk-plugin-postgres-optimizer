@@ -28,7 +28,7 @@ describe.skipIf(!PG_URL)("Query analyzer (EXPLAIN)", () => {
   });
 
   it("explains a query and suggests an index for a filtered seq scan", async () => {
-    const r = await explainQuery(runner, env, "SELECT * FROM orders WHERE customer_id = 42", { analyze: false }, settings);
+    const r = await explainQuery(runner, env, "SELECT * FROM orders WHERE customer_id = 42", settings);
     expect(r.ok).toBe(true);
     expect(r.plan?.nodeType).toMatch(/Seq Scan|Gather/);
     expect(r.issues.some((i) => i.title.includes("Sequential scan on public.orders"))).toBe(true);
@@ -41,7 +41,6 @@ describe.skipIf(!PG_URL)("Query analyzer (EXPLAIN)", () => {
       runner,
       env,
       "SELECT * FROM orders WHERE customer_id = $1 AND status = $2",
-      { analyze: false },
       settings,
     );
     expect(r.ok, r.error).toBe(true);
@@ -51,57 +50,35 @@ describe.skipIf(!PG_URL)("Query analyzer (EXPLAIN)", () => {
     expect(r.suggestions.some((s) => s.columns[0] === "customer_id")).toBe(true);
   });
 
-  it("runs EXPLAIN ANALYZE for SELECTs and reports actual rows", async () => {
-    const r = await explainQuery(runner, env, "SELECT count(*) FROM orders WHERE status = 'paid'", { analyze: true }, settings);
-    expect(r.ok, r.error).toBe(true);
-    expect(r.executionMs).toBeGreaterThan(0);
-    expect(r.plan?.actualRows).toBe(1);
-  });
-
-  it("refuses to execute writes", async () => {
-    const del = await explainQuery(runner, env, "DELETE FROM orders", { analyze: true }, settings);
-    expect(del.ok).toBe(false);
-    expect(del.error).toMatch(/only allowed for read-only SELECT/);
-
-    const cte = await explainQuery(
-      runner,
-      env,
-      "WITH gone AS (DELETE FROM orders RETURNING id) SELECT count(*) FROM gone",
-      { analyze: true },
-      settings,
-    );
-    expect(cte.ok).toBe(false);
-
-    // A function with side effects still can't write inside the read-only transaction.
+  it("never runs the query", async () => {
     await client.query(
       "CREATE OR REPLACE FUNCTION sneaky() RETURNS int LANGUAGE sql AS $$ DELETE FROM orders RETURNING 1 $$",
     );
-    const fn = await explainQuery(runner, env, "SELECT sneaky()", { analyze: true }, settings);
-    expect(fn.ok).toBe(false);
-    expect(fn.error).toMatch(/read-only transaction/);
+    const r = await explainQuery(runner, env, "SELECT sneaky()", settings);
+    expect(r.ok, r.error).toBe(true);
     const count = await client.query("SELECT count(*)::int AS n FROM orders");
     expect(count.rows[0].n).toBe(120000);
   });
 
   it("estimates DML plans without running them", async () => {
-    const r = await explainQuery(runner, env, "UPDATE orders SET total = 0 WHERE customer_id = 7", { analyze: false }, settings);
+    const r = await explainQuery(runner, env, "UPDATE orders SET total = 0 WHERE customer_id = 7", settings);
     expect(r.ok, r.error).toBe(true);
     const n = await client.query("SELECT count(*)::int AS n FROM orders WHERE total = 0 AND customer_id = 7");
     expect(n.rows[0].n).toBe(0);
   });
 
   it("rejects multiple statements and utility commands", async () => {
-    expect((await explainQuery(runner, env, "SELECT 1; SELECT 2", { analyze: false }, settings)).error).toMatch(/one statement/);
-    expect((await explainQuery(runner, env, "VACUUM orders", { analyze: false }, settings)).error).toMatch(/have query plans/);
+    expect((await explainQuery(runner, env, "SELECT 1; SELECT 2", settings)).error).toMatch(/one statement/);
+    expect((await explainQuery(runner, env, "VACUUM orders", settings)).error).toMatch(/have query plans/);
   });
 
   it("handles a trailing line comment", async () => {
-    const r = await explainQuery(runner, env, "SELECT * FROM customers WHERE id = $1 -- by id", { analyze: false }, settings);
+    const r = await explainQuery(runner, env, "SELECT * FROM customers WHERE id = $1 -- by id", settings);
     expect(r.ok, r.error).toBe(true);
   });
 
   it("leaves the session clean after a failed EXPLAIN", async () => {
-    const bad = await explainQuery(runner, env, "SELECT * FROM no_such_table WHERE id = $1", { analyze: false }, settings);
+    const bad = await explainQuery(runner, env, "SELECT * FROM no_such_table WHERE id = $1", settings);
     expect(bad.ok).toBe(false);
     const prepared = await client.query("SELECT count(*)::int AS n FROM pg_prepared_statements");
     expect(prepared.rows[0].n).toBe(0);
@@ -118,7 +95,7 @@ describe.skipIf(!PG_URL)("Query analyzer (EXPLAIN)", () => {
       expect(plainEnv.isSuperuser).toBe(false);
       expect(plainEnv.canReadAllStats).toBe(false);
       expect(plainEnv.notices.map((n) => n.id)).toContain("pgss-own-queries-only");
-      const r = await explainQuery(plainRunner, plainEnv, "SELECT * FROM orders WHERE customer_id = 1", { analyze: false }, settings);
+      const r = await explainQuery(plainRunner, plainEnv, "SELECT * FROM orders WHERE customer_id = 1", settings);
       expect(r.ok, r.error).toBe(true);
     } finally {
       await plain.end();

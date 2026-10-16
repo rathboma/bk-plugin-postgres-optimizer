@@ -1,5 +1,4 @@
 import type {
-  ExplainOptions,
   ExplainResult,
   IndexSuggestion,
   OptimizerSettings,
@@ -76,14 +75,10 @@ interface ExplainPlanText {
 }
 
 /**
- * Work out how to EXPLAIN a query. Queries copied from pg_stat_statements
- * contain `$1` placeholders, which plain EXPLAIN rejects.
+ * Work out how to EXPLAIN a query without running it. Queries copied from
+ * pg_stat_statements contain `$1` placeholders, which plain EXPLAIN rejects.
  */
-export function buildExplain(
-  env: PostgresEnvironment,
-  sql: string,
-  opts: ExplainOptions,
-): ExplainPlanText | { error: string } {
+export function buildExplain(env: PostgresEnvironment, sql: string): ExplainPlanText | { error: string } {
   const query = repairNormalizedQuery(sql);
   if (!query) return { error: "Enter a query to analyze." };
   if (countStatements(query) > 1) return { error: "Analyze one statement at a time." };
@@ -94,30 +89,6 @@ export function buildExplain(
   const params = parameterCount(query);
   // Keep a trailing `-- comment` from swallowing the statement separator.
   const q = `${query}\n`;
-
-  if (opts.analyze) {
-    if (params > 0) {
-      return { error: "This query has $1-style placeholders. Replace them with real values to run EXPLAIN ANALYZE." };
-    }
-    if (kind !== "select") {
-      return { error: "EXPLAIN ANALYZE executes the query, so it is only allowed for read-only SELECT statements." };
-    }
-    // A read-only transaction makes sure nothing in the query can write. The
-    // division fails the whole batch, before the EXPLAIN runs, if the guard
-    // somehow didn't take effect (e.g. statements sent one by one).
-    const guard = env.readOnly
-      ? []
-      : [
-          "SET LOCAL transaction_read_only = on",
-          "SET LOCAL statement_timeout = '120s'",
-          "SELECT 1 / (current_setting('transaction_read_only') = 'on')::int AS read_only_guard",
-        ];
-    return {
-      statements: [...guard, `EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON) ${q}`],
-      planIndex: guard.length,
-      mode: "Executed (EXPLAIN ANALYZE, read-only transaction)",
-    };
-  }
 
   if (params === 0) {
     return { statements: [`EXPLAIN (VERBOSE, FORMAT JSON) ${q}`], planIndex: 0, mode: "Estimated plan (EXPLAIN)" };
@@ -192,11 +163,10 @@ export async function explainQuery(
   runner: QueryRunner,
   env: PostgresEnvironment,
   sql: string,
-  opts: ExplainOptions,
   settings: OptimizerSettings,
   cache = new CatalogCache(),
 ): Promise<ExplainResult> {
-  const built = buildExplain(env, sql, opts);
+  const built = buildExplain(env, sql);
   if ("error" in built) return { ok: false, error: built.error, issues: [], suggestions: [] };
 
   let raw;
@@ -208,8 +178,7 @@ export async function explainQuery(
 
   const root = normalizePlan(raw.Plan);
   await cache.load(runner, env, planRelations(root));
-  const { issues, candidates } = analyzePlan(root, raw, {
-    analyzed: opts.analyze,
+  const { issues, candidates } = analyzePlan(root, {
     tableRows: cache.tableRows,
     largeTableRows: settings.largeTableRows,
   });
@@ -220,13 +189,7 @@ export async function explainQuery(
   });
 
   if (env.hypopg.installed && suggestions.length) {
-    // ANALYZE plans can't be validated (hypopg indexes are planner-only), so
-    // validate against the estimated plan of the same query.
-    const estimatePlan = opts.analyze ? buildExplain(env, sql, { analyze: false }) : built;
-    if (!("error" in estimatePlan)) {
-      const before = opts.analyze ? normalizePlan((await runExplain(runner, estimatePlan)).Plan).totalCost : root.totalCost;
-      await validateSuggestions(runner, env, estimatePlan, before, suggestions);
-    }
+    await validateSuggestions(runner, env, built, root.totalCost, suggestions);
   }
 
   // Suggestions hypopg proved useful first, ones the planner would ignore last.
@@ -238,11 +201,8 @@ export async function explainQuery(
     ok: true,
     mode: built.mode,
     plan: root,
-    planningMs: raw["Planning Time"],
-    executionMs: raw["Execution Time"],
     totalCost: root.totalCost,
     issues,
     suggestions,
-    rawPlan: raw,
   };
 }

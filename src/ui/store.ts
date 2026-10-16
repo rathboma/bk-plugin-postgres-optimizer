@@ -48,7 +48,6 @@ export const state = reactive({
   },
   analyzer: {
     sql: "",
-    analyze: false,
     running: false,
     result: null as ExplainResult | null,
   },
@@ -170,7 +169,6 @@ export async function analyze(sql: string = state.analyzer.sql) {
       host.runner,
       state.env,
       sql,
-      { analyze: state.analyzer.analyze },
       state.settings,
     );
   } catch (e) {
@@ -182,7 +180,6 @@ export async function analyze(sql: string = state.analyzer.sql) {
 
 /** Jump to the analyzer with a query and explain it. */
 export function analyzeQuery(sql: string) {
-  state.analyzer.analyze = false;
   setView("analyze");
   void analyze(sql);
 }

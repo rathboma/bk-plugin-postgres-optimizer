@@ -40,7 +40,7 @@ export const indexSuggestions: PgCheck = {
     const rows: Row[] = [];
 
     for (const q of stats) {
-      const result = await explainQuery(runner, env, q.query, { analyze: false }, settings, cache);
+      const result = await explainQuery(runner, env, q.query, settings, cache);
       rows.push({
         query: oneLine(q.query, 300),
         total_time_ms: q.totalTimeMs,

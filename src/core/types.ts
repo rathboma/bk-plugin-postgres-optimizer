@@ -237,7 +237,7 @@ export interface QueryStatsResult {
   queries: QueryStat[];
 }
 
-/** A node of a query plan, normalized enough for display. */
+/** A node of an estimated query plan (EXPLAIN without ANALYZE, so nothing runs). */
 export interface PlanNode {
   id: number;
   nodeType: string;
@@ -246,15 +246,7 @@ export interface PlanNode {
   relation?: { schema?: string; name: string; alias?: string };
   indexName?: string;
   estimatedRows: number;
-  actualRows?: number;
-  loops?: number;
   totalCost: number;
-  /** Inclusive time across loops, when the plan was executed. */
-  actualTotalMs?: number;
-  /** Time spent in this node alone (inclusive minus children). */
-  selfMs?: number;
-  /** Additional key/value details: filters, sort keys, buffers. */
-  details: { label: string; value: string }[];
   children: PlanNode[];
   raw: Row;
 }
@@ -263,8 +255,6 @@ export interface PlanIssue {
   severity: Severity;
   title: string;
   description: string;
-  nodeId?: number;
-  fix?: Fix;
 }
 
 export interface IndexSuggestion {
@@ -284,23 +274,15 @@ export interface IndexSuggestion {
   };
 }
 
-export interface ExplainOptions {
-  /** Execute the query (EXPLAIN ANALYZE). Only allowed for read-only statements. */
-  analyze: boolean;
-}
-
 export interface ExplainResult {
   ok: boolean;
   error?: string;
   /** How the plan was produced, e.g. "Generic plan (EXPLAIN GENERIC_PLAN)". */
   mode?: string;
   plan?: PlanNode;
-  planningMs?: number;
-  executionMs?: number;
   totalCost?: number;
   issues: PlanIssue[];
   suggestions: IndexSuggestion[];
-  rawPlan?: unknown;
 }
 
 export interface OptimizerSettings {
@@ -356,7 +338,6 @@ export interface DatabaseAdapter<E extends BaseEnvironment = BaseEnvironment> {
     runner: QueryRunner,
     env: E,
     sql: string,
-    opts: ExplainOptions,
     settings: OptimizerSettings,
   ): Promise<ExplainResult>;
 }

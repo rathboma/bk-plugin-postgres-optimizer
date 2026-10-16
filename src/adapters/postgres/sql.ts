@@ -130,10 +130,7 @@ export type StatementKind = "select" | "dml" | "utility" | "unknown";
 
 const DML_RE = /\b(insert|update|delete|merge)\b/i;
 
-/**
- * Classify a statement for EXPLAIN purposes.
- * `select` statements can be executed safely with EXPLAIN ANALYZE.
- */
+/** Classify a statement for EXPLAIN purposes: utility statements have no plan. */
 export function statementKind(sql: string): StatementKind {
   const clean = stripSqlNoise(sql).trim().replace(/^\(+\s*/, "");
   const first = clean.match(/^([a-zA-Z]+)/)?.[1]?.toLowerCase();

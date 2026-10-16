@@ -12,7 +12,7 @@ It does what people usually piece together by hand from `pg_stat_statements`, `E
 
 **Slow queries.** The queries the database spends the most time on, from `pg_stat_statements`. Click one to see why it's slow.
 
-**Analyze a query.** Paste a query to see its plan, the slow steps and the index that would help. With [hypopg](https://github.com/HypoPG/hypopg) installed, every index suggestion is tested with a hypothetical index first, so you only see indexes the planner would actually use. Queries with `$1` placeholders are planned generically.
+**Analyze a query.** Paste a query to see what makes it slow and which index would help. The query is only planned with `EXPLAIN`, never run. With [hypopg](https://github.com/HypoPG/hypopg) installed, every index suggestion is tested with a hypothetical index first, so you only see indexes the planner would actually use. Queries with `$1` placeholders are planned generically.
 
 <details>
 <summary>All 30 checks</summary>
@@ -31,7 +31,7 @@ The plugin also adds **Analyze Query Performance** to the query editor's right-c
 
 - The optimizer only reads. It queries the statistics views and catalogs and runs `EXPLAIN`.
 - Fixes are never run for you. Each one opens in a query tab so you can review it, and is labelled *Safe to run*, *Review before running* or *Destructive*.
-- `EXPLAIN ANALYZE` executes the query, so it is opt-in, limited to `SELECT` statements, and runs inside a read-only transaction with a statement timeout. A function that tries to write fails instead of writing.
+- Your queries are never executed. The analyzer uses `EXPLAIN` without `ANALYZE`, which only plans them.
 - hypopg indexes exist only inside the optimizer's own session and are never built.
 - Works on read-only connections.
 
@@ -157,7 +157,7 @@ GPL-3.0
 
 ![Slow queries](docs/screenshots/04-slow-queries.png)
 
-**Analyze a query:** suggested indexes, slow steps and the plan with time per step, here after `EXPLAIN ANALYZE`.
+**Analyze a query:** the index that would help, verified with a hypothetical index, and the slow steps in the plan.
 
 ![Analyze a query](docs/screenshots/05-analyze.png)
 

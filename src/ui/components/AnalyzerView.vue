@@ -1,14 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import type { IndexSuggestion } from "@/core/types";
-import { displayColumns, formatMs, formatNumber, formatReduction } from "@/core/format";
+import { displayColumns, formatNumber, formatReduction } from "@/core/format";
 import { actions, analyze, setView, state } from "../store";
 import Icon from "./Icon.vue";
-import PlanNodeView from "./PlanNodeView.vue";
 
 const result = computed(() => state.analyzer.result);
-const hasParams = computed(() => /\$\d+/.test(state.analyzer.sql));
-const showPlan = ref(false);
 
 function onKey(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -31,15 +28,7 @@ function verdict(s: IndexSuggestion) {
 
 const summary = computed(() => {
   const r = result.value;
-  if (!r?.ok) return "";
-  return [
-    r.mode,
-    r.executionMs !== undefined ? `ran in ${formatMs(r.executionMs)}` : "",
-    r.planningMs !== undefined ? `planning ${formatMs(r.planningMs)}` : "",
-    `estimated cost ${formatNumber(r.totalCost)}`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  return r?.ok ? `${r.mode} · estimated cost ${formatNumber(r.totalCost)}` : "";
 });
 </script>
 
@@ -47,7 +36,7 @@ const summary = computed(() => {
   <div class="analyzer">
     <div class="view-header">
       <h1>Analyze a query</h1>
-      <p>See the query plan, what makes the query slow, and which index would help.</p>
+      <p>See what makes a query slow and which index would help. The query is planned, never run.</p>
     </div>
 
     <div class="editor">
@@ -63,14 +52,6 @@ const summary = computed(() => {
           <span v-if="state.analyzer.running" class="spinner" />
           Analyze
         </button>
-        <label
-          class="check muted"
-          :class="{ disabled: hasParams }"
-          :title="hasParams ? 'Replace the $1 placeholders with values to run the query' : 'Runs the query inside a read-only transaction. SELECT only.'"
-        >
-          <input v-model="state.analyzer.analyze" type="checkbox" :disabled="hasParams" />
-          Run it for real timings (EXPLAIN ANALYZE)
-        </label>
         <span class="spacer" />
         <span class="faint kbd">Ctrl+Enter</span>
       </div>
@@ -82,7 +63,7 @@ const summary = computed(() => {
 
     <p v-if="result && !result.ok" class="error">{{ result.error }}</p>
 
-    <template v-if="result && result.ok && result.plan">
+    <template v-if="result && result.ok">
       <p class="faint summary">{{ summary }}</p>
 
       <section v-if="result.suggestions.length">
@@ -118,33 +99,12 @@ const summary = computed(() => {
               <div class="title">{{ i.title }}</div>
               <p class="muted">{{ i.description }}</p>
             </div>
-            <button v-if="i.fix" class="btn btn-sm" @click="actions.openInEditor(i.fix.sql)">
-              {{ i.fix.title }} <Icon name="open" :size="13" />
-            </button>
           </div>
         </div>
       </section>
       <p v-else-if="!result.suggestions.length" class="row ok">
-        <span class="dot good" /> No problems found in this plan.
+        <span class="dot good" /> No missing indexes or slow scans found in this plan.
       </p>
-
-      <section>
-        <div class="row">
-          <button class="link plan-toggle" :aria-expanded="showPlan" @click="showPlan = !showPlan">
-            <Icon name="chevron" :size="16" class="chev" :class="{ open: showPlan }" /> Query plan
-          </button>
-          <span class="spacer" />
-          <button v-if="showPlan" class="link" @click="actions.copy(JSON.stringify(result.rawPlan, null, 2))">Copy JSON</button>
-        </div>
-        <template v-if="showPlan">
-          <div class="list plan">
-            <PlanNodeView :node="result.plan" :depth="0" :total-ms="result.executionMs" :issues="result.issues" />
-          </div>
-          <p class="faint small">
-            Click a step for its details.{{ result.executionMs !== undefined ? " Bars show the time spent in each step." : " Run it for real to see where the time goes." }}
-          </p>
-        </template>
-      </section>
     </template>
   </div>
 </template>
@@ -170,12 +130,6 @@ const summary = computed(() => {
 .bar {
   flex-wrap: wrap;
   gap: 14px;
-}
-.check {
-  font-size: 12px;
-}
-.check.disabled {
-  opacity: 0.5;
 }
 .kbd {
   font-size: 11px;
@@ -241,21 +195,6 @@ h2 {
 .ok {
   margin-top: 20px;
   color: var(--c-text-muted);
-}
-.plan-toggle {
-  font-size: 13px;
-  color: var(--c-text);
-  font-weight: 500;
-}
-.chev {
-  transition: transform 0.12s;
-}
-.chev.open {
-  transform: rotate(90deg);
-}
-.plan {
-  margin-top: 8px;
-  overflow-x: auto;
 }
 .small {
   font-size: 12px;

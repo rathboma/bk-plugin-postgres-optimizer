@@ -3,9 +3,6 @@ import { toNumber } from "@/core/format";
 
 export interface RawExplain {
   Plan: Row;
-  "Planning Time"?: number;
-  "Execution Time"?: number;
-  JIT?: Row;
 }
 
 /** EXPLAIN (FORMAT JSON) returns a one-element array. */
@@ -16,31 +13,6 @@ export function unwrapExplain(value: unknown): RawExplain {
   }
   return v as RawExplain;
 }
-
-const DETAIL_KEYS: [string, string][] = [
-  ["Index Cond", "Index Cond"],
-  ["Recheck Cond", "Recheck Cond"],
-  ["Filter", "Filter"],
-  ["Rows Removed by Filter", "Rows Removed by Filter"],
-  ["Rows Removed by Index Recheck", "Rows Removed by Index Recheck"],
-  ["Join Filter", "Join Filter"],
-  ["Rows Removed by Join Filter", "Rows Removed by Join Filter"],
-  ["Hash Cond", "Hash Cond"],
-  ["Merge Cond", "Merge Cond"],
-  ["Sort Key", "Sort Key"],
-  ["Presorted Key", "Presorted Key"],
-  ["Sort Method", "Sort Method"],
-  ["Group Key", "Group Key"],
-  ["Heap Fetches", "Heap Fetches"],
-  ["Hash Batches", "Hash Batches"],
-  ["Peak Memory Usage", "Peak Memory (kB)"],
-  ["Lossy Heap Blocks", "Lossy Heap Blocks"],
-  ["Workers Planned", "Workers Planned"],
-  ["Workers Launched", "Workers Launched"],
-  ["Shared Hit Blocks", "Shared Hit Blocks"],
-  ["Shared Read Blocks", "Shared Read Blocks"],
-  ["Temp Written Blocks", "Temp Written Blocks"],
-];
 
 function describe(raw: Row): string {
   const type = String(raw["Node Type"] ?? "Unknown");
@@ -60,39 +32,11 @@ function describe(raw: Row): string {
   return parts.join(" ");
 }
 
-function detailValue(v: unknown): string {
-  if (Array.isArray(v)) return v.join(", ");
-  return String(v);
-}
-
-/**
- * Convert one raw EXPLAIN JSON node (and its children) into a PlanNode.
- * `processes` is how many processes run this part of the plan at once (the
- * workers under a Gather plus the leader).
- */
-export function normalizePlan(raw: Row, counter = { next: 0 }, processes = 1): PlanNode {
+/** Convert one raw EXPLAIN JSON node (and its children) into a PlanNode. */
+export function normalizePlan(raw: Row, counter = { next: 0 }): PlanNode {
   const id = counter.next++;
-  const launched = raw["Workers Launched"] ?? raw["Workers Planned"];
-  const childProcesses = launched === undefined ? processes : toNumber(launched) + 1;
-  const children = ((raw["Plans"] as Row[] | undefined) ?? []).map((c) => normalizePlan(c, counter, childProcesses));
-  const loops = raw["Actual Loops"] === undefined ? undefined : toNumber(raw["Actual Loops"]);
-  // Actual Total Time is per loop. Loops spread over parallel processes run at
-  // the same time, so divide them out to get wall-clock time.
-  const perLoop = raw["Actual Total Time"] === undefined ? undefined : toNumber(raw["Actual Total Time"]);
-  const actualTotalMs =
-    perLoop === undefined ? undefined : Math.max(perLoop, (perLoop * (loops || 1)) / processes);
-
-  const details: PlanNode["details"] = [];
-  for (const [key, label] of DETAIL_KEYS) {
-    if (raw[key] !== undefined && raw[key] !== null && raw[key] !== "") {
-      details.push({ label, value: detailValue(raw[key]) });
-    }
-  }
-  if (raw["Sort Space Used"] !== undefined) {
-    details.push({ label: "Sort Space", value: `${raw["Sort Space Used"]} kB (${raw["Sort Space Type"]})` });
-  }
-
-  const node: PlanNode = {
+  const children = ((raw["Plans"] as Row[] | undefined) ?? []).map((c) => normalizePlan(c, counter));
+  return {
     id,
     nodeType: String(raw["Node Type"] ?? "Unknown"),
     label: describe(raw),
@@ -105,21 +49,10 @@ export function normalizePlan(raw: Row, counter = { next: 0 }, processes = 1): P
       : undefined,
     indexName: raw["Index Name"] ? String(raw["Index Name"]) : undefined,
     estimatedRows: toNumber(raw["Plan Rows"]),
-    actualRows: raw["Actual Rows"] === undefined ? undefined : toNumber(raw["Actual Rows"]),
-    loops,
     totalCost: toNumber(raw["Total Cost"]),
-    actualTotalMs,
-    details,
     children,
     raw,
   };
-
-  if (actualTotalMs !== undefined) {
-    // CTE scans and InitPlans are reported as children but run separately; clamp at 0.
-    const childMs = children.reduce((sum, c) => sum + (c.actualTotalMs ?? 0), 0);
-    node.selfMs = Math.max(0, actualTotalMs - childMs);
-  }
-  return node;
 }
 
 export function walk(node: PlanNode, visit: (node: PlanNode, parent: PlanNode | null) => void, parent: PlanNode | null = null) {
