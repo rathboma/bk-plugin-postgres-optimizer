@@ -2,7 +2,9 @@
 
 Find slow queries, missing indexes and other performance problems in PostgreSQL, and get the SQL to fix them, without leaving [Beekeeper Studio](https://www.beekeeperstudio.io).
 
-![Overview](docs/overview.png)
+![Postgres Optimizer running in Beekeeper Studio](docs/demo.gif)
+
+*Recorded in Beekeeper Studio 6.1.5 against the demo database in [`dev/demo.sql`](dev/demo.sql). More [screenshots](#screenshots) below.*
 
 It does what people usually piece together by hand from `pg_stat_statements`, `EXPLAIN`, the statistics views and tools like [PgHero](https://github.com/ankane/pghero):
 
@@ -28,11 +30,9 @@ It does what people usually piece together by hand from `pg_stat_statements`, `E
 
 **Query analyzer**
 
-Paste a query (or right-click in the query editor and pick **Analyze Query Performance**) to see its plan, the slow steps, row misestimates, disk spills and index suggestions. Queries copied from `pg_stat_statements` with `$1` placeholders are planned generically.
+Paste a query to see its plan, the slow steps, row misestimates, disk spills and index suggestions. Queries copied from `pg_stat_statements` with `$1` placeholders are planned generically.
 
-![Indexes](docs/indexes.png)
-
-![Query analyzer](docs/analyzer.png)
+The plugin also adds **Analyze Query Performance** to the query editor's right-click menu. In Beekeeper Studio 6.1.5 that menu fails for every plugin item (the host calls the handler with the wrong arguments), so the entry does nothing until that is fixed in Beekeeper Studio.
 
 ## Safe by design
 
@@ -56,7 +56,7 @@ Paste a query (or right-click in the query editor and pick **Analyze Query Perfo
 2. Open **Tools → Postgres Optimizer**, or pick it from the new tab dropdown.
 3. Checks run automatically. Click a finding for details, the suggested fix and actions.
 
-Use the gear icon to change thresholds such as what counts as a slow query or a large table. Dismissed findings stay hidden for that connection until you restore them. The table icon next to each check shows its raw data in the result panel at the bottom of the tab.
+Use the gear icon to change thresholds such as what counts as a slow query or a large table. Dismissed findings stay hidden for that connection until you restore them. The table icon next to each check shows the raw rows behind it, which you can copy as CSV.
 
 ## How it works
 
@@ -98,6 +98,18 @@ ln -s "$(pwd)" ~/.config/beekeeper-studio/plugins/bk-plugin-postgres-optimizer
 ln -s "$(pwd)" ~/Library/Application\ Support/beekeeper-studio/plugins/bk-plugin-postgres-optimizer
 ```
 
+### Demo data
+
+[`dev/demo.sql`](dev/demo.sql) builds a small shop database with one of each problem the optimizer looks for, and [`dev/demo-workload.mjs`](dev/demo-workload.mjs) runs queries against it so `pg_stat_statements` has something to show. The video and screenshots in this README use it.
+
+```bash
+createdb shop
+psql shop -f dev/demo.sql
+PG_URL=postgres://localhost/shop node dev/demo-workload.mjs
+```
+
+The server needs `pg_stat_statements` in `shared_preload_libraries`, and the hypopg extension package installed.
+
 ### Integration tests
 
 Integration tests run every check against a real server. They create and drop their own scratch databases.
@@ -133,3 +145,37 @@ The release workflow builds the plugin and creates a draft GitHub release with `
 ## License
 
 GPL-3.0
+
+## Screenshots
+
+**Overview:** every check, grouped by category and ranked by severity.
+
+![Overview](docs/screenshots/01-overview.png)
+
+**Index suggestions:** read from the plans of your most expensive queries and verified with a hypothetical index.
+
+![Index suggestions](docs/screenshots/02-index-suggestions.png)
+
+**Fixes open in a query tab:** review the SQL and run it yourself.
+
+![Fix opened in a query tab](docs/screenshots/03-fix-in-query-tab.png)
+
+**Top queries** from `pg_stat_statements`, sortable by total time, mean time, calls, disk reads and temp files.
+
+![Top queries](docs/screenshots/04-top-queries.png)
+
+**Query analyzer:** plan tree with time per step, issues and index suggestions, here after `EXPLAIN ANALYZE`.
+
+![Query analyzer](docs/screenshots/05-query-analyzer.png)
+
+**Tables & maintenance:** dead rows, stale statistics, sequences close to their limit, autovacuum settings.
+
+![Tables and maintenance](docs/screenshots/06-maintenance.png)
+
+**Configuration:** settings compared with what the server is actually doing.
+
+![Configuration](docs/screenshots/07-configuration.png)
+
+**Raw data:** the rows behind any check, ready to copy as CSV.
+
+![Raw data behind a check](docs/screenshots/08-raw-data.png)
