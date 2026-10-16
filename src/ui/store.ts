@@ -9,13 +9,17 @@ import type {
   QuerySort,
   QueryStatsResult,
 } from "@/core/types";
-import { CATEGORIES, DEFAULT_SETTINGS } from "@/core/types";
+import { DEFAULT_SETTINGS } from "@/core/types";
 import { allFindings, runAnalysis, type AnalysisReport } from "@/core/engine";
 import { errorMessage } from "@/core/format";
 import { findAdapter, supportedEngines } from "@/core/registry";
 import * as host from "@/host/beekeeper";
+import { buildRecommendations, type Recommendation } from "./recommendations";
 
-export type View = "overview" | CategoryId | "top-queries" | "analyzer";
+export type { Recommendation };
+
+export type View = "recommendations" | "queries" | "analyze" | "checks";
+const VIEWS: View[] = ["recommendations", "queries", "analyze", "checks"];
 
 interface PersistedViewState {
   view?: View;
@@ -32,8 +36,7 @@ export const state = reactive({
   settings: { ...DEFAULT_SETTINGS } as OptimizerSettings,
   report: null as AnalysisReport | null,
   running: false,
-  progress: { done: 0, total: 0, current: "" },
-  view: "overview" as View,
+  view: "recommendations" as View,
   dismissed: [] as string[],
   showDismissed: false,
   settingsOpen: false,
@@ -55,31 +58,29 @@ export const supported = supportedEngines();
 
 const isDismissed = (f: Finding) => state.dismissed.includes(f.key);
 
-export const findings = computed(() => {
-  const all = allFindings(state.report);
-  return state.showDismissed ? all : all.filter((f) => !isDismissed(f));
-});
+export function isFindingDismissed(f: Finding) {
+  return isDismissed(f);
+}
 
-export const dismissedCount = computed(
-  () => allFindings(state.report).filter(isDismissed).length,
+/** Every finding as one prioritized list, with duplicate advice merged. */
+export const recommendations = computed<Recommendation[]>(() =>
+  buildRecommendations(allFindings(state.report).filter((f) => state.showDismissed || !isDismissed(f))),
 );
 
-export const counts = computed(() => {
-  const out = { critical: 0, warning: 0, info: 0 };
-  for (const f of findings.value) out[f.severity]++;
-  return out;
-});
+export const dismissedCount = computed(() => allFindings(state.report).filter(isDismissed).length);
 
-export function categoryFindings(id: CategoryId): Finding[] {
-  return findings.value.filter((f) => f.category === id);
-}
+export const checkSummary = computed(() => {
+  const results = state.report?.results ?? [];
+  return {
+    total: results.length,
+    passed: results.filter((r) => r.status === "passed").length,
+    skipped: results.filter((r) => r.status === "skipped").length,
+    failed: results.filter((r) => r.status === "error").length,
+  };
+});
 
 export function categoryResults(id: CategoryId) {
   return (state.report?.results ?? []).filter((r) => r.category === id);
-}
-
-export function isFindingDismissed(f: Finding) {
-  return isDismissed(f);
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +105,7 @@ export async function init() {
     ]);
     state.settings = { ...DEFAULT_SETTINGS, ...(savedSettings ?? {}) };
     state.dismissed = Array.isArray(dismissed) ? dismissed : [];
-    if (viewState?.view) state.view = viewState.view;
+    if (viewState?.view && VIEWS.includes(viewState.view)) state.view = viewState.view;
     if (viewState?.analyzerSql) state.analyzer.sql = viewState.analyzerSql;
 
     state.env = await adapter.detectEnvironment(host.runner, { readOnly: conn.readOnlyMode });
@@ -113,8 +114,10 @@ export async function init() {
 
     if (ctx.command === "analyze-query" && ctx.sql) {
       state.analyzer.sql = ctx.sql;
-      setView("analyzer");
+      setView("analyze");
       void analyze();
+    } else if (state.view === "queries") {
+      void loadTopQueries();
     }
     await runChecks();
   } catch (e) {
@@ -134,11 +137,8 @@ export async function runChecks() {
       runner: host.runner,
       env: state.env,
       settings: state.settings,
-      onProgress: (done, total, check) => {
-        state.progress = { done, total, current: check.title };
-      },
     });
-    if (state.view === "top-queries") void loadTopQueries();
+    if (state.view === "queries") void loadTopQueries();
   } catch (e) {
     void host.notifyError(`Analysis failed: ${errorMessage(e)}`);
   } finally {
@@ -152,7 +152,7 @@ export async function loadTopQueries(sort: QuerySort = state.topQueries.sort) {
   state.topQueries.loading = true;
   state.topQueries.error = null;
   try {
-    state.topQueries.result = await state.adapter.topQueries(host.runner, state.env, { sort, limit: 100 });
+    state.topQueries.result = await state.adapter.topQueries(host.runner, state.env, { sort, limit: 50 });
   } catch (e) {
     state.topQueries.error = errorMessage(e);
   } finally {
@@ -183,14 +183,14 @@ export async function analyze(sql: string = state.analyzer.sql) {
 /** Jump to the analyzer with a query and explain it. */
 export function analyzeQuery(sql: string) {
   state.analyzer.analyze = false;
-  setView("analyzer");
+  setView("analyze");
   void analyze(sql);
 }
 
 export function setView(view: View) {
   state.view = view;
   persistViewState();
-  if (view === "top-queries" && !state.topQueries.result && !state.topQueries.loading) {
+  if (view === "queries" && !state.topQueries.result && !state.topQueries.loading) {
     void loadTopQueries();
   }
 }
@@ -220,9 +220,4 @@ export const actions = {
   openInEditor: (sql: string) => host.openInEditor(sql),
   copy: (text: string) => host.copy(text),
   openLink: (url: string) => host.openLink(url),
-  openTable: (table: string, schema?: string) => host.openTable(table, schema),
 };
-
-export function categoryTitle(id: CategoryId) {
-  return CATEGORIES.find((c) => c.id === id)?.title ?? id;
-}

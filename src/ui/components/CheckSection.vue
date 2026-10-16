@@ -1,108 +1,114 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { CheckResult } from "@/core/types";
-import { formatMs } from "@/core/format";
 import { isFindingDismissed, state } from "../store";
-import FindingCard from "./FindingCard.vue";
-import Icon from "./Icon.vue";
 import RawDataTable from "./RawDataTable.vue";
+import RecommendationRow from "./RecommendationRow.vue";
+import Icon from "./Icon.vue";
 
 const props = defineProps<{ result: CheckResult }>();
 
+const open = ref(false);
 const showData = ref(false);
 
-const visible = computed(() =>
+const findings = computed(() =>
   props.result.findings.filter((f) => state.showDismissed || !isFindingDismissed(f)),
 );
-const hiddenCount = computed(() => props.result.findings.length - visible.value.length);
 
 const status = computed(() => {
   const r = props.result;
-  if (r.status === "error") return { label: "Failed", cls: "sev-critical", icon: "critical" as const };
-  if (r.status === "skipped") return { label: "Skipped", cls: "", icon: "skipped" as const };
-  if (!visible.value.length) return { label: hiddenCount.value ? "All dismissed" : "No issues", cls: "sev-success", icon: "check" as const };
-  return {
-    label: `${visible.value.length} ${visible.value.length === 1 ? "issue" : "issues"}`,
-    cls: visible.value.some((f) => f.severity === "critical")
-      ? "sev-critical"
-      : visible.value.some((f) => f.severity === "warning")
-        ? "sev-warning"
-        : "sev-info",
-    icon: null,
-  };
+  switch (r.status) {
+    case "error":
+      return { label: "Failed", dot: "critical" };
+    case "skipped":
+      return { label: "Skipped", dot: "" };
+    case "passed":
+      return { label: "Passed", dot: "good" };
+    default: {
+      const n = findings.value.length;
+      if (!n) return { label: "Dismissed", dot: "" };
+      const worst = findings.value.some((f) => f.severity === "critical")
+        ? "critical"
+        : findings.value.some((f) => f.severity === "warning")
+          ? "warning"
+          : "";
+      return { label: `${n} ${n === 1 ? "issue" : "issues"}`, dot: worst };
+    }
+  }
 });
 </script>
 
 <template>
-  <section class="check">
-    <header class="row head">
-      <h3>{{ result.title }}</h3>
-      <span class="pill" :class="status.cls">
-        <Icon v-if="status.icon" :name="status.icon" :size="12" />
-        {{ status.label }}
-      </span>
+  <div class="check" :class="{ open }">
+    <div
+      class="head"
+      role="button"
+      tabindex="0"
+      :aria-expanded="open"
+      @click="open = !open"
+      @keydown.enter.prevent="open = !open"
+    >
+      <span class="dot" :class="status.dot" />
+      <span class="title">{{ result.title }}</span>
       <span class="spacer" />
-      <span class="faint duration" v-if="result.durationMs > 0">{{ formatMs(result.durationMs) }}</span>
-      <button
-        v-if="result.rows.length"
-        class="icon-btn"
-        :class="{ on: showData }"
-        :title="showData ? 'Hide the raw data' : 'Show the raw data behind this check'"
-        @click="showData = !showData"
-      >
-        <Icon name="data" :size="15" />
-      </button>
-    </header>
-    <p class="muted desc">{{ result.description }}</p>
-    <p v-if="result.message" class="message" :class="{ error: result.status === 'error' }">{{ result.message }}</p>
-    <RawDataTable v-if="showData" :rows="result.rows" />
-    <div v-if="visible.length" class="list">
-      <FindingCard v-for="f in visible" :key="f.key" :finding="f" />
+      <span class="faint status">{{ status.label }}</span>
+      <Icon name="chevron" :size="16" class="chev" />
     </div>
-  </section>
+
+    <div v-if="open" class="body">
+      <p class="muted">{{ result.description }}</p>
+      <p v-if="result.message" class="message">{{ result.message }}</p>
+      <div v-if="findings.length" class="list">
+        <RecommendationRow v-for="f in findings" :key="f.key" :rec="{ key: f.key, finding: f, related: [] }" />
+      </div>
+      <template v-if="result.rows.length">
+        <button class="link" @click="showData = !showData">
+          {{ showData ? "Hide data" : `Show the data behind this check (${result.rows.length} ${result.rows.length === 1 ? "row" : "rows"})` }}
+        </button>
+        <RawDataTable v-if="showData" :rows="result.rows" />
+      </template>
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.check {
+.head {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--c-border);
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px 9px 14px;
+  cursor: pointer;
 }
-.check:last-child {
-  border-bottom: none;
+.head:hover {
+  background: var(--c-subtle);
 }
-.head h3 {
-  font-size: 14px;
-}
-.desc {
-  margin: 0;
-}
-.icon-btn.on {
-  background: var(--c-hover);
+.title {
   color: var(--c-text-strong);
 }
-.duration {
-  font-size: 11px;
-}
-.message {
-  margin: 0;
-  padding: 6px 10px;
-  border-radius: var(--radius);
-  background: var(--c-subtle);
-  color: var(--c-text-muted);
-}
-.message.error {
-  background: color-mix(in srgb, var(--c-danger) 12%, transparent);
-  color: var(--c-danger);
-  font-family: var(--font-mono);
+.status {
   font-size: 12px;
 }
-.list {
+.chev {
+  color: var(--c-text-faint);
+  transition: transform 0.12s;
+}
+.open .chev {
+  transform: rotate(90deg);
+}
+.body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 4px;
+  align-items: stretch;
+  gap: 10px;
+  padding: 2px 14px 14px 33px;
+}
+.body > .link {
+  align-self: flex-start;
+}
+.message {
+  padding: 6px 10px;
+  border-left: 2px solid var(--c-border);
+  color: var(--c-text);
+  word-break: break-word;
 }
 </style>

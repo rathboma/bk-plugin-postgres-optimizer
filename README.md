@@ -6,38 +6,31 @@ Find slow queries, missing indexes and other performance problems in PostgreSQL,
 
 *Recorded in Beekeeper Studio 6.1.5 against the demo database in [`dev/demo.sql`](dev/demo.sql). More [screenshots](#screenshots) below.*
 
-It does what people usually piece together by hand from `pg_stat_statements`, `EXPLAIN`, the statistics views and tools like [PgHero](https://github.com/ankane/pghero):
+It does what people usually piece together by hand from `pg_stat_statements`, `EXPLAIN`, the statistics views and tools like [PgHero](https://github.com/ankane/pghero), and boils it down to three views:
 
-**Slow and expensive queries**
-- Slowest queries by average time, and the ones using the biggest share of total database time
-- Queries spilling sorts and hashes to disk, and queries reading mostly from disk
-- Queries running right now for longer than a threshold
-- A sortable top-queries table from `pg_stat_statements`
+**Recommendations.** One list of what to fix, most important first: missing indexes for your most expensive queries, slow queries, foreign keys without an index, sequences running out of values, then housekeeping like unused indexes, vacuum and settings. Each item says why it matters and has one button for the fix.
 
-**Missing and bad indexes**
-- Index suggestions for your most expensive queries, found by reading their query plans. With [hypopg](https://github.com/HypoPG/hypopg) installed, every suggestion is tested with a hypothetical index first, so you only see indexes the planner would actually use
-- Foreign keys without an index
-- Large tables that are mostly read with sequential scans
-- Unused, duplicate and redundant indexes
-- Invalid indexes left behind by a failed `CREATE INDEX CONCURRENTLY`
+**Slow queries.** The queries the database spends the most time on, from `pg_stat_statements`. Click one to see why it's slow.
 
-**Other performance problems**
-- Dead rows piling up, missing or stale planner statistics, autovacuum turned off
-- Transaction ID wraparound risk, sequences running out of values
-- Memory, planner, checkpoint and monitoring settings, judged against what the server is actually doing (e.g. `work_mem` is only flagged when queries write temp files)
-- JIT compilation overhead, inactive replication slots
-- Connection usage, sessions idle in a transaction, long transactions, lock waits, abandoned prepared transactions
+**Analyze a query.** Paste a query to see its plan, the slow steps and the index that would help. With [hypopg](https://github.com/HypoPG/hypopg) installed, every index suggestion is tested with a hypothetical index first, so you only see indexes the planner would actually use. Queries with `$1` placeholders are planned generically.
 
-**Query analyzer**
+<details>
+<summary>All 30 checks</summary>
 
-Paste a query to see its plan, the slow steps, row misestimates, disk spills and index suggestions. Queries copied from `pg_stat_statements` with `$1` placeholders are planned generically.
+- **Queries:** slowest queries by average time, queries using the biggest share of database time, queries spilling to disk, queries reading mostly from disk, queries running right now for too long
+- **Indexes:** index suggestions read from query plans, foreign keys without an index, large tables read with sequential scans, unused, duplicate and redundant indexes, invalid indexes left by a failed `CREATE INDEX CONCURRENTLY`
+- **Tables & maintenance:** dead rows, missing or stale planner statistics, autovacuum turned off, transaction ID wraparound, sequences running out of values, tables without a primary key, constraints never validated
+- **Configuration:** memory, planner, checkpoint and monitoring settings, judged against what the server is actually doing (e.g. `work_mem` is only flagged when queries write temp files), JIT overhead, inactive replication slots
+- **Connections & locks:** connection usage, sessions idle in a transaction, long transactions, lock waits, abandoned prepared transactions
+
+</details>
 
 The plugin also adds **Analyze Query Performance** to the query editor's right-click menu. In Beekeeper Studio 6.1.5 that menu fails for every plugin item (the host calls the handler with the wrong arguments), so the entry does nothing until that is fixed in Beekeeper Studio.
 
 ## Safe by design
 
 - The optimizer only reads. It queries the statistics views and catalogs and runs `EXPLAIN`.
-- Fixes are never run for you. Each one opens in a query tab so you can review it, and is labelled *Safe to run*, *Review first* or *Destructive*.
+- Fixes are never run for you. Each one opens in a query tab so you can review it, and is labelled *Safe to run*, *Review before running* or *Destructive*.
 - `EXPLAIN ANALYZE` executes the query, so it is opt-in, limited to `SELECT` statements, and runs inside a read-only transaction with a statement timeout. A function that tries to write fails instead of writing.
 - hypopg indexes exist only inside the optimizer's own session and are never built.
 - Works on read-only connections.
@@ -54,9 +47,9 @@ The plugin also adds **Analyze Query Performance** to the query editor's right-c
 
 1. Connect to a PostgreSQL database.
 2. Open **Tools → Postgres Optimizer**, or pick it from the new tab dropdown.
-3. Checks run automatically. Click a finding for details, the suggested fix and actions.
+3. Checks run automatically. Click a recommendation for the details, or its button to open the fix in a query tab.
 
-Use the gear icon to change thresholds such as what counts as a slow query or a large table. Dismissed findings stay hidden for that connection until you restore them. The table icon next to each check shows the raw rows behind it, which you can copy as CSV.
+Use the gear icon to change thresholds such as what counts as a slow query or a large table. Dismissed recommendations stay hidden for that connection until you restore them. **See all checks**, under the list, shows every check with what it looks at and the raw rows behind it, which you can copy as CSV.
 
 ## How it works
 
@@ -148,34 +141,26 @@ GPL-3.0
 
 ## Screenshots
 
-**Overview:** every check, grouped by category and ranked by severity.
+**Recommendations:** what to fix, most important first, with one button for each fix.
 
-![Overview](docs/screenshots/01-overview.png)
+![Recommendations](docs/screenshots/01-recommendations.png)
 
-**Index suggestions:** read from the plans of your most expensive queries and verified with a hypothetical index.
+**Details:** why it matters, the query it helps and the SQL to run. Index suggestions are verified with a hypothetical index.
 
-![Index suggestions](docs/screenshots/02-index-suggestions.png)
+![Recommendation details](docs/screenshots/02-recommendation-details.png)
 
 **Fixes open in a query tab:** review the SQL and run it yourself.
 
 ![Fix opened in a query tab](docs/screenshots/03-fix-in-query-tab.png)
 
-**Top queries** from `pg_stat_statements`, sortable by total time, mean time, calls, disk reads and temp files.
+**Slow queries** from `pg_stat_statements`, sortable by total time, average time, calls, disk reads and temp files.
 
-![Top queries](docs/screenshots/04-top-queries.png)
+![Slow queries](docs/screenshots/04-slow-queries.png)
 
-**Query analyzer:** plan tree with time per step, issues and index suggestions, here after `EXPLAIN ANALYZE`.
+**Analyze a query:** suggested indexes, slow steps and the plan with time per step, here after `EXPLAIN ANALYZE`.
 
-![Query analyzer](docs/screenshots/05-query-analyzer.png)
+![Analyze a query](docs/screenshots/05-analyze.png)
 
-**Tables & maintenance:** dead rows, stale statistics, sequences close to their limit, autovacuum settings.
+**All checks:** every check by category, with the raw rows behind it.
 
-![Tables and maintenance](docs/screenshots/06-maintenance.png)
-
-**Configuration:** settings compared with what the server is actually doing.
-
-![Configuration](docs/screenshots/07-configuration.png)
-
-**Raw data:** the rows behind any check, ready to copy as CSV.
-
-![Raw data behind a check](docs/screenshots/08-raw-data.png)
+![All checks](docs/screenshots/06-all-checks.png)

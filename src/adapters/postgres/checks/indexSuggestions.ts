@@ -1,10 +1,10 @@
 import type { Check, Finding, IndexSuggestion, Row } from "@/core/types";
-import { displayColumns, formatNumber, formatPercent, oneLine } from "@/core/format";
+import { displayColumns, formatNumber, formatReduction, oneLine } from "@/core/format";
 import type { PostgresEnvironment } from "../environment";
 import { CatalogCache, explainQuery } from "../explain/explain";
 import { relationKey } from "../explain/planAnalyzer";
 import { SELF_MARKER, toQueryStat, topQueriesSql } from "../queryStats";
-import { qualifiedName, statementKind } from "../sql";
+import { shortName, statementKind } from "../sql";
 
 type PgCheck = Check<PostgresEnvironment>;
 
@@ -68,7 +68,7 @@ export const indexSuggestions: PgCheck = {
     const findings: Finding[] = [...collected.values()].map(({ suggestion: s, queries }) => {
       const v = s.validation;
       const saving = v && v.costBefore > 0 ? 1 - v.costAfter / v.costBefore : null;
-      const table = qualifiedName(s.schema, s.table);
+      const table = shortName(s.schema, s.table);
       const totalTime = queries.reduce((sum, q) => sum + q.totalTimeMs, 0);
       return {
         key: `index-suggestions:${relationKey(s.schema, s.table)}:${s.columns.join(",")}`,
@@ -76,10 +76,11 @@ export const indexSuggestions: PgCheck = {
         category: "indexes",
         severity: (saving !== null && saving >= 0.5) || totalTime >= 60_000 ? "warning" : "info",
         title: `Add an index on ${table} (${displayColumns(s.columns)})`,
+        groupKey: `index:${s.schema ?? ""}.${s.table}(${s.columns.map((c) => c.replace(/^\((.*)\)$/, "$1")).join(",")})`.toLowerCase(),
         description:
           `${s.reason}. Helps ${queries.length === 1 ? "one" : queries.length} of the most expensive queries.` +
           (v
-            ? ` With a hypothetical index the planner uses it and the estimated cost drops ${formatPercent((saving ?? 0) * 100, 0)} (${formatNumber(Math.round(v.costBefore))} → ${formatNumber(Math.round(v.costAfter))}).`
+            ? ` With a hypothetical index the planner uses it and the estimated cost drops ${formatReduction(saving ?? 0)} (${formatNumber(Math.round(v.costBefore))} → ${formatNumber(Math.round(v.costAfter))}).`
             : env.hypopg.available && !env.hypopg.installed
               ? " Install hypopg to have suggestions verified before you build them."
               : ""),
@@ -91,7 +92,7 @@ export const indexSuggestions: PgCheck = {
           ...(v ? [{ label: "Est. cost reduction", value: (saving ?? 0) * 100, format: "percent" as const }] : []),
         ],
         fix: {
-          title: "Create the index",
+          title: "Create index",
           sql: `-- CONCURRENTLY builds without blocking writes; it can't run inside a transaction.\n${s.ddl}`,
           safety: "safe",
           notes: "Every index slows down writes a little. Check it's used afterwards.",

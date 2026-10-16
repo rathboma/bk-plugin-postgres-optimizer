@@ -107,7 +107,7 @@ export const memorySettings: PgCheck = {
       findings.push(
         settingFinding(env, "memory-settings", "shared_buffers", {
           severity: "warning",
-          title: `shared_buffers is only ${formatBytes(sharedBuffers)}`,
+          title: `Increase shared_buffers (only ${formatBytes(sharedBuffers)})`,
           description:
             "This is PostgreSQL's built-in default, sized to start on almost any machine. A common starting point is " +
             "25% of the server's RAM (for example 4GB on a 16GB server).",
@@ -126,7 +126,7 @@ export const memorySettings: PgCheck = {
       findings.push(
         settingFinding(env, "memory-settings", "work_mem", {
           severity: workMem <= 4 * MB ? "warning" : "info",
-          title: `Queries have written ${formatBytes(tempBytes)} of temporary files`,
+          title: `Increase work_mem (queries wrote ${formatBytes(tempBytes)} of temp files)`,
           description:
             `${tempFiles.toLocaleString("en-US")} temp files were created because sorts and hashes didn't fit in work_mem (${formatBytes(workMem)}). ` +
             "work_mem applies per sort/hash node per connection, so raise it carefully, or only for the roles or queries that need it " +
@@ -148,7 +148,7 @@ export const memorySettings: PgCheck = {
       findings.push(
         settingFinding(env, "memory-settings", "maintenance_work_mem", {
           severity: "info",
-          title: `maintenance_work_mem is at the default ${formatBytes(maint)}`,
+          title: `Increase maintenance_work_mem (default ${formatBytes(maint)})`,
           description:
             "VACUUM, CREATE INDEX and ALTER TABLE ADD FOREIGN KEY use this. Larger values (256MB-1GB) make vacuum and index builds much faster.",
           fix: alterSystem("maintenance_work_mem", "512MB", s["maintenance_work_mem"], ""),
@@ -162,7 +162,7 @@ export const memorySettings: PgCheck = {
       findings.push(
         settingFinding(env, "memory-settings", "effective_cache_size", {
           severity: "info",
-          title: `effective_cache_size is at the default ${formatBytes(ecs)}`,
+          title: `Set effective_cache_size (default ${formatBytes(ecs)})`,
           description:
             "This tells the planner how much memory is available for caching (shared_buffers plus the OS cache). " +
             "It allocates nothing; setting it to 50-75% of RAM makes the planner more willing to use indexes.",
@@ -188,7 +188,7 @@ export const plannerSettings: PgCheck = {
       findings.push(
         settingFinding(env, "planner-settings", "random_page_cost", {
           severity: "info",
-          title: `random_page_cost is ${rpc}, tuned for spinning disks`,
+          title: `Lower random_page_cost for SSD storage (now ${rpc})`,
           description:
             "On SSDs and most cloud storage, random reads cost about the same as sequential ones. Lowering this to 1.1-2 " +
             "makes the planner choose index scans where they really are faster.",
@@ -202,7 +202,7 @@ export const plannerSettings: PgCheck = {
       findings.push(
         settingFinding(env, "planner-settings", "effective_io_concurrency", {
           severity: "info",
-          title: `effective_io_concurrency is ${eic}`,
+          title: `Raise effective_io_concurrency for SSD storage (now ${eic})`,
           description:
             "SSDs handle many concurrent reads. Raising this (e.g. 200 on SSD) speeds up bitmap heap scans by prefetching.",
           fix: alterSystem("effective_io_concurrency", "200", s["effective_io_concurrency"], "Only for SSD / network storage."),
@@ -236,7 +236,7 @@ export const checkpoints: PgCheck = {
       findings.push(
         settingFinding(env, "checkpoints", "max_wal_size", {
           severity: requested / total >= 0.5 ? "warning" : "info",
-          title: `${formatPercent((100 * requested) / total, 0)} of checkpoints were forced by WAL volume`,
+          title: `Increase max_wal_size (${formatPercent((100 * requested) / total, 0)} of checkpoints were forced)`,
           description:
             `max_wal_size (${maxWal ? formatBytes(maxWal) : "unknown"}) fills up before checkpoint_timeout, so writes trigger extra checkpoints. ` +
             "Raising max_wal_size spreads checkpoints out.",
@@ -255,7 +255,7 @@ export const checkpoints: PgCheck = {
       findings.push(
         settingFinding(env, "checkpoints", "checkpoint_completion_target", {
           severity: "info",
-          title: `checkpoint_completion_target is ${cct}`,
+          title: `Raise checkpoint_completion_target to 0.9 (now ${cct})`,
           description: "0.9 (the default since PostgreSQL 14) spreads checkpoint writes over more time and smooths out I/O.",
           fix: alterSystem("checkpoint_completion_target", "0.9", env.settings["checkpoint_completion_target"], ""),
         }),
@@ -277,7 +277,7 @@ export const monitoringSettings: PgCheck = {
       findings.push(
         settingFinding(env, "monitoring-settings", "track_io_timing", {
           severity: "info",
-          title: "track_io_timing is off",
+          title: "Turn on track_io_timing",
           description:
             "Without it, pg_stat_statements and EXPLAIN (ANALYZE, BUFFERS) can't tell you how much time queries spend waiting on disk. " +
             "The overhead is small on modern hardware (check with pg_test_timing).",
@@ -290,7 +290,7 @@ export const monitoringSettings: PgCheck = {
       findings.push(
         settingFinding(env, "monitoring-settings", "log_min_duration_statement", {
           severity: "info",
-          title: "Slow queries are not logged",
+          title: "Log slow queries",
           description:
             "Logging statements slower than a threshold records the actual parameter values, which pg_stat_statements leaves out. " +
             "Log analyzers like pgBadger use these logs.",
@@ -304,7 +304,7 @@ export const monitoringSettings: PgCheck = {
       findings.push(
         settingFinding(env, "monitoring-settings", "track_activity_query_size", {
           severity: "info",
-          title: "Running queries are cut off after 1KB",
+          title: "Raise track_activity_query_size",
           description:
             "pg_stat_activity only keeps the first 1024 bytes of each query, so long queries can't be identified while they run.",
           fix: alterSystem("track_activity_query_size", "4096", s["track_activity_query_size"], ""),
@@ -315,7 +315,7 @@ export const monitoringSettings: PgCheck = {
       findings.push(
         settingFinding(env, "monitoring-settings", "track_counts", {
           severity: "critical",
-          title: "track_counts is off",
+          title: "Turn on track_counts",
           description:
             "Autovacuum relies on these statistics to decide which tables to vacuum and analyze. Most checks here rely on them too.",
           fix: alterSystem("track_counts", "on", s["track_counts"], ""),
@@ -353,7 +353,7 @@ export const jitOverhead: PgCheck = {
       findings.push(
         settingFinding(env, "jit-overhead", "jit", {
           severity: jit / total >= 0.2 ? "warning" : "info",
-          title: `JIT compilation takes ${formatPercent((100 * jit) / total)} of query time`,
+          title: `Turn off JIT (it takes ${formatPercent((100 * jit) / total)} of query time)`,
           description:
             `${toNumber(r?.jit_queries)} query shapes triggered JIT. If the workload is mostly short queries, turning JIT off ` +
             "(or raising jit_above_cost) usually makes them faster.",
@@ -396,7 +396,7 @@ export const replicationSlots: PgCheck = {
         checkId: "replication-slots",
         category: "config",
         severity: retained !== null && retained >= 10 * GB ? "critical" : retained !== null && retained >= GB ? "warning" : "info",
-        title: `Replication slot ${r.slot_name} is inactive${retained !== null ? ` and holding ${formatBytes(retained)} of WAL` : ""}`,
+        title: `Drop inactive replication slot ${r.slot_name}${retained !== null ? ` (holding ${formatBytes(retained)} of WAL)` : ""}`,
         description:
           "Nothing is consuming this slot, but the server keeps every WAL file the slot hasn't read. " +
           "If the consumer is gone for good, drop the slot.",
@@ -407,7 +407,7 @@ export const replicationSlots: PgCheck = {
           { label: "xmin age", value: r.xmin_age === null ? null : toNumber(r.xmin_age) },
         ],
         fix: {
-          title: "Drop the slot",
+          title: "Drop slot",
           sql: `SELECT pg_drop_replication_slot('${String(r.slot_name).replace(/'/g, "''")}');`,
           safety: "destructive",
         },

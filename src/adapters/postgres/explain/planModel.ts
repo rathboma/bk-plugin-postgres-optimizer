@@ -65,13 +65,22 @@ function detailValue(v: unknown): string {
   return String(v);
 }
 
-/** Convert one raw EXPLAIN JSON node (and its children) into a PlanNode. */
-export function normalizePlan(raw: Row, counter = { next: 0 }): PlanNode {
+/**
+ * Convert one raw EXPLAIN JSON node (and its children) into a PlanNode.
+ * `processes` is how many processes run this part of the plan at once (the
+ * workers under a Gather plus the leader).
+ */
+export function normalizePlan(raw: Row, counter = { next: 0 }, processes = 1): PlanNode {
   const id = counter.next++;
-  const children = ((raw["Plans"] as Row[] | undefined) ?? []).map((c) => normalizePlan(c, counter));
+  const launched = raw["Workers Launched"] ?? raw["Workers Planned"];
+  const childProcesses = launched === undefined ? processes : toNumber(launched) + 1;
+  const children = ((raw["Plans"] as Row[] | undefined) ?? []).map((c) => normalizePlan(c, counter, childProcesses));
   const loops = raw["Actual Loops"] === undefined ? undefined : toNumber(raw["Actual Loops"]);
+  // Actual Total Time is per loop. Loops spread over parallel processes run at
+  // the same time, so divide them out to get wall-clock time.
+  const perLoop = raw["Actual Total Time"] === undefined ? undefined : toNumber(raw["Actual Total Time"]);
   const actualTotalMs =
-    raw["Actual Total Time"] === undefined ? undefined : toNumber(raw["Actual Total Time"]) * (loops || 1);
+    perLoop === undefined ? undefined : Math.max(perLoop, (perLoop * (loops || 1)) / processes);
 
   const details: PlanNode["details"] = [];
   for (const [key, label] of DETAIL_KEYS) {

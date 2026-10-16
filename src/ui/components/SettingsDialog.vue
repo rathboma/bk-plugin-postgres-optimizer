@@ -55,7 +55,7 @@ function reset() {
 
 <template>
   <div class="backdrop" @click.self="state.settingsOpen = false">
-    <div class="dialog card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header class="row">
         <h2 id="settings-title">Thresholds</h2>
         <span class="spacer" />
@@ -73,7 +73,7 @@ function reset() {
           </div>
         </div>
         <footer class="row">
-          <button type="button" class="btn btn-ghost" @click="reset">Reset to defaults</button>
+          <button type="button" class="link" @click="reset">Reset to defaults</button>
           <span class="spacer" />
           <button type="button" class="btn" @click="state.settingsOpen = false">Cancel</button>
           <button type="submit" class="btn btn-primary">Save and re-run</button>
@@ -98,11 +98,14 @@ function reset() {
 .dialog {
   width: 100%;
   max-width: 560px;
-  padding: 16px;
+  padding: 18px 20px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-panel);
   box-shadow: var(--menu-shadow, 0 8px 30px rgba(0, 0, 0, 0.4));
 }
 header h2 {
-  font-size: 16px;
+  font-size: 15px;
 }
 form {
   display: flex;
@@ -135,6 +138,6 @@ form {
   font-size: 12px;
 }
 footer {
-  margin-top: 8px;
+  margin-top: 10px;
 }
 </style>

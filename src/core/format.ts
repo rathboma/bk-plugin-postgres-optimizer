@@ -114,3 +114,14 @@ export function oneLine(sql: string, max = 200): string {
 export function displayColumns(columns: string[]): string {
   return columns.map((c) => c.replace(/^\((.*)\)$/, "$1")).join(", ");
 }
+
+/** `1 day`, `3 days`. */
+export function plural(n: number, word: string): string {
+  return `${formatNumber(n)} ${n === 1 ? word : `${word}s`}`;
+}
+
+/** A 0-1 reduction as a whole percent, never rounding a partial saving up to 100%. */
+export function formatReduction(fraction: number): string {
+  const pct = Math.round(fraction * 100);
+  return `${fraction < 1 && pct >= 100 ? 99 : pct}%`;
+}

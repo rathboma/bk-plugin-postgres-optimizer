@@ -41,6 +41,11 @@ export function qualifiedName(schema: string | undefined | null, name: string): 
   return schema ? `${quoteIdent(schema)}.${quoteIdent(name)}` : quoteIdent(name);
 }
 
+/** Name for display: schema-qualified unless it lives in public. */
+export function shortName(schema: string | undefined | null, name: string): string {
+  return !schema || schema === "public" ? quoteIdent(name) : qualifiedName(schema, name);
+}
+
 /** PostgreSQL truncates identifiers at 63 bytes. */
 const MAX_IDENT = 63;
 

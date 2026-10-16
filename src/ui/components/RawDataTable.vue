@@ -2,7 +2,6 @@
 import { computed } from "vue";
 import type { Row } from "@/core/types";
 import { actions } from "../store";
-import Icon from "./Icon.vue";
 
 const props = defineProps<{ rows: Row[] }>();
 
@@ -27,13 +26,11 @@ function csv(): string {
 </script>
 
 <template>
-  <div class="raw card">
+  <div class="raw">
     <div class="row bar">
       <span class="faint">{{ rows.length }} {{ rows.length === 1 ? "row" : "rows" }}{{ rows.length > LIMIT ? `, showing ${LIMIT}` : "" }}</span>
       <span class="spacer" />
-      <button class="btn btn-sm btn-ghost" @click="actions.copy(csv())">
-        <Icon name="copy" :size="14" /> Copy as CSV
-      </button>
+      <button class="link" @click="actions.copy(csv())">Copy as CSV</button>
     </div>
     <div class="scroll">
       <table>
@@ -53,9 +50,11 @@ function csv(): string {
 <style scoped>
 .raw {
   overflow: hidden;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
 }
 .bar {
-  padding: 4px 6px 4px 10px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--c-border);
   font-size: 12px;
 }

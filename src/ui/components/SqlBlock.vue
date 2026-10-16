@@ -26,7 +26,7 @@ const long = computed(() => props.collapsible && text.value.split("\n").length >
   <div class="sql-block">
     <pre class="sql" :class="{ clamp: long && !expanded }"><code v-html="html"></code></pre>
     <div class="tools">
-      <button v-if="long" class="btn btn-sm btn-ghost" @click="expanded = !expanded">
+      <button v-if="long" class="link" @click="expanded = !expanded">
         {{ expanded ? "Show less" : "Show all" }}
       </button>
       <template v-if="props.actions">
@@ -68,7 +68,7 @@ pre.clamp {
   right: 2px;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
 }
 .tools .icon-btn {
   width: 24px;

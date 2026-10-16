@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { analyzePlan, relationKey } from "@/adapters/postgres/explain/planAnalyzer";
-import { normalizePlan, unwrapExplain } from "@/adapters/postgres/explain/planModel";
+import { findNodes, normalizePlan, unwrapExplain, walk } from "@/adapters/postgres/explain/planModel";
 import { chooseColumns, equalityRows, findCoveringIndex, suggestIndexes } from "@/adapters/postgres/explain/indexAdvisor";
 import type { IndexInfo } from "@/adapters/postgres/indexCatalog";
 
@@ -146,6 +146,14 @@ describe("plan model", () => {
     expect(root.selfMs!).toBeLessThanOrEqual(root.actualTotalMs!);
     expect(root.label).toBe("Hash Join");
     expect(root.children[0].label).toBe("Seq Scan on public.orders o");
+  });
+
+  it("counts parallel workers' time once, not once per worker", () => {
+    const { raw, root } = load("parallel-analyze");
+    const executionMs = Number((raw as { "Execution Time": number })["Execution Time"]);
+    walk(root, (n) => expect(n.actualTotalMs!).toBeLessThanOrEqual(executionMs));
+    const scan = findNodes(root, (n) => n.nodeType === "Seq Scan")[0];
+    expect(scan.actualTotalMs).toBeCloseTo(47.778, 1);
   });
 });
 

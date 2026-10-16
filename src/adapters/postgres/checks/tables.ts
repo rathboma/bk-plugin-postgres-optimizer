@@ -3,7 +3,7 @@ import { formatNumber, formatPercent, toNumber } from "@/core/format";
 import type { PostgresEnvironment } from "../environment";
 import { settingNumber } from "../environment";
 import { SELF_MARKER } from "../queryStats";
-import { qualifiedName, quoteIdent } from "../sql";
+import { qualifiedName, quoteIdent, shortName } from "../sql";
 import { toStringArray } from "../rows";
 
 type PgCheck = Check<PostgresEnvironment>;
@@ -49,7 +49,7 @@ export const deadTuples: PgCheck = {
         checkId: "dead-tuples",
         category: "tables",
         severity: ratio >= 0.5 ? "warning" : "info",
-        title: `${formatPercent(ratio * 100, 0)} of ${table} is dead rows`,
+        title: `Vacuum ${shortName(String(r.schema), String(r.table_name))} (${formatPercent(ratio * 100, 0)} dead rows)`,
         description:
           `${formatNumber(dead)} dead rows vs ${formatNumber(live)} live rows. ` +
           (lastVacuum ? `Last vacuumed ${new Date(String(lastVacuum)).toLocaleString()}. ` : "It has never been vacuumed. ") +
@@ -61,7 +61,7 @@ export const deadTuples: PgCheck = {
           { label: "Last vacuum", value: lastVacuum ? String(lastVacuum) : null, format: "datetime" },
         ],
         fix: {
-          title: "Vacuum the table",
+          title: "Vacuum table",
           sql:
             `VACUUM (ANALYZE, VERBOSE) ${table};\n\n` +
             `-- To have autovacuum keep up on its own, vacuum after 5% of rows change instead of 20%:\n` +
@@ -110,7 +110,7 @@ export const staleStatistics: PgCheck = {
         checkId: "stale-statistics",
         category: "tables",
         severity: live >= settings.largeTableRows ? "warning" : "info",
-        title: never ? `${table} has never been analyzed` : `${table} has changed a lot since it was last analyzed`,
+        title: `Analyze ${shortName(String(r.schema), String(r.table_name))} (${never ? "never analyzed" : "statistics are stale"})`,
         description: never
           ? `The planner has no statistics for this ${formatNumber(live)} row table and has to guess how many rows each filter matches, which often leads to bad plans.`
           : `${formatNumber(modified)} rows have changed since statistics were collected on ${new Date(String(lastAnalyze)).toLocaleString()}.`,
@@ -120,7 +120,7 @@ export const staleStatistics: PgCheck = {
           { label: "Changed since analyze", value: modified },
           { label: "Last analyze", value: lastAnalyze ? String(lastAnalyze) : null, format: "datetime" },
         ],
-        fix: { title: "Analyze the table", sql: `ANALYZE VERBOSE ${table};`, safety: "safe" },
+        fix: { title: "Analyze table", sql: `ANALYZE VERBOSE ${table};`, safety: "safe" },
         learnMoreUrl: "https://www.postgresql.org/docs/current/routine-vacuuming.html#VACUUM-FOR-STATISTICS",
       });
     }
@@ -161,7 +161,7 @@ export const transactionIdWraparound: PgCheck = {
         checkId: "xid-wraparound",
         category: "tables",
         severity: left < 100_000_000 ? "critical" : age > freezeMaxAge ? "warning" : "info",
-        title: `${table} is ${formatNumber(age)} transactions old`,
+        title: `Freeze ${shortName(String(r.schema), String(r.table_name))} before transaction IDs run out`,
         description:
           `About ${formatNumber(left)} transactions remain before wraparound protection forces the database read-only. ` +
           (age > freezeMaxAge
@@ -174,7 +174,7 @@ export const transactionIdWraparound: PgCheck = {
           { label: "Freeze max age", value: freezeMaxAge },
           { label: "Size", value: toNumber(r.total_bytes), format: "bytes" },
         ],
-        fix: { title: "Freeze the table", sql: `VACUUM (FREEZE, VERBOSE) ${table};`, safety: "safe" },
+        fix: { title: "Freeze table", sql: `VACUUM (FREEZE, VERBOSE) ${table};`, safety: "safe" },
         learnMoreUrl: `${VACUUM_DOCS}#VACUUM-FOR-WRAPAROUND`,
       } satisfies Finding;
     });
@@ -232,7 +232,7 @@ export const sequenceExhaustion: PgCheck = {
       let fix: Finding["fix"];
       if (smallColumn) {
         fix = {
-          title: "Change the column to bigint",
+          title: "Change to bigint",
           sql:
             `-- Rewrites the whole table under an ACCESS EXCLUSIVE lock. On large tables, consider\n` +
             `-- adding a new bigint column, backfilling it in batches and swapping it in instead.\n` +
@@ -242,7 +242,7 @@ export const sequenceExhaustion: PgCheck = {
         };
       } else if (smallSequence) {
         fix = {
-          title: "Widen the sequence",
+          title: "Widen sequence",
           sql: `ALTER SEQUENCE ${seqName} AS bigint;`,
           safety: "safe",
         };
@@ -252,9 +252,9 @@ export const sequenceExhaustion: PgCheck = {
         checkId: "sequence-exhaustion",
         category: "tables",
         severity: used >= 0.85 ? "critical" : used >= 0.7 ? "warning" : "info",
-        title: `${seqName} has used ${formatPercent(used * 100, 0)} of its values`,
+        title: `Sequence ${shortName(String(r.schema), String(r.sequence_name))} is ${formatPercent(used * 100, 0)} used up`,
         description: smallColumn
-          ? `It feeds ${table}.${r.column_name}, a ${r.column_type} column that tops out at ${formatNumber(colMax)}. ` +
+          ? `It feeds ${table}.${r.column_name}, ${/^[aeiou]/i.test(String(r.column_type)) ? "an" : "a"} ${r.column_type} column that tops out at ${formatNumber(colMax)}. ` +
             "Inserts will fail once it gets there. Changing the column to bigint rewrites the table and locks it, so plan ahead."
           : `The sequence stops at ${formatNumber(seqMax)}; nextval() fails after that.`,
         target: { kind: "sequence", schema: String(r.schema), name: String(r.sequence_name) },
@@ -300,13 +300,13 @@ export const tablesWithoutPrimaryKey: PgCheck = {
         checkId: "tables-without-primary-key",
         category: "tables",
         severity: "info",
-        title: `${table} has no primary key`,
+        title: `${shortName(String(r.schema), String(r.table_name))} has no primary key`,
         description:
           "Add a primary key on the column(s) that uniquely identify a row, or an identity column if there is none.",
         target: { kind: "table", schema: String(r.schema), name: String(r.table_name) },
         metrics: [{ label: "Rows", value: toNumber(r.estimated_rows) }],
         fix: {
-          title: "Add an identity primary key",
+          title: "Add primary key",
           sql:
             `-- Adding a column with an identity rewrites the table under an exclusive lock.\n` +
             `ALTER TABLE ${table} ADD COLUMN id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY;`,
@@ -339,12 +339,12 @@ export const invalidConstraints: PgCheck = {
         checkId: "invalid-constraints",
         category: "tables",
         severity: "info",
-        title: `${r.constraint_name} on ${table} is NOT VALID`,
+        title: `Validate constraint ${r.constraint_name} on ${shortName(String(r.schema), String(r.table_name))}`,
         description:
           "New rows are checked, but existing rows never were. Validating takes a lighter lock than adding the constraint did, so it is safe to run on a live table.",
         target: { kind: "constraint", schema: String(r.schema), name: String(r.constraint_name), table: String(r.table_name) },
         fix: {
-          title: "Validate the constraint",
+          title: "Validate",
           sql: `ALTER TABLE ${table} VALIDATE CONSTRAINT ${quoteIdent(String(r.constraint_name))};`,
           safety: "safe",
         },
@@ -367,12 +367,12 @@ export const autovacuumDisabled: PgCheck = {
         checkId: "autovacuum-disabled",
         category: "tables",
         severity: "critical",
-        title: "Autovacuum is turned off for the whole server",
+        title: "Autovacuum is off for the whole server",
         description:
           "Without autovacuum, dead rows are never cleaned up, statistics go stale and the database will eventually stop accepting writes to prevent transaction ID wraparound.",
         target: { kind: "setting", name: "autovacuum" },
         fix: {
-          title: "Turn autovacuum back on",
+          title: "Turn on autovacuum",
           sql: "ALTER SYSTEM SET autovacuum = on;\nSELECT pg_reload_conf();",
           safety: "safe",
         },
@@ -394,13 +394,13 @@ export const autovacuumDisabled: PgCheck = {
         checkId: "autovacuum-disabled",
         category: "tables",
         severity: "warning",
-        title: `Autovacuum is turned off for ${table}`,
+        title: `Autovacuum is off for ${shortName(String(r.schema), String(r.table_name))}`,
         description:
           "Dead rows in this table are only removed by manual VACUUM. Anti-wraparound vacuums still run, but bloat and stale statistics are likely.",
         target: { kind: "table", schema: String(r.schema), name: String(r.table_name) },
         metrics: [{ label: "Options", value: toStringArray(r.reloptions).join(", "), format: "text" }],
         fix: {
-          title: "Turn autovacuum back on",
+          title: "Turn on autovacuum",
           sql: `ALTER TABLE ${table} RESET (autovacuum_enabled);`,
           safety: "safe",
         },

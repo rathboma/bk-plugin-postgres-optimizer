@@ -87,7 +87,7 @@ export const idleInTransaction: PgCheck = {
         checkId: "idle-in-transaction",
         category: "connections",
         severity: idleFor >= 3600 ? "critical" : "warning",
-        title: `pid ${r.pid} has been idle in a transaction for ${formatMs(idleFor * 1000)}`,
+        title: `End transaction idle for ${formatMs(idleFor * 1000)} (pid ${r.pid})`,
         description:
           `Opened by ${r.username ?? "unknown"}${r.application_name ? ` (${r.application_name})` : ""}. ` +
           "Usually an application bug: a transaction that was never committed or rolled back. " +
@@ -100,7 +100,7 @@ export const idleInTransaction: PgCheck = {
           { label: "Last query", value: oneLine(String(r.query ?? ""), 60), format: "text" },
         ],
         fix: {
-          title: "End the session",
+          title: "End session",
           sql:
             `-- Rolls back the open transaction and disconnects the session.\nSELECT pg_terminate_backend(${toNumber(r.pid)});` +
             (timeoutOff
@@ -133,7 +133,7 @@ export const longTransactions: PgCheck = {
         checkId: "long-transactions",
         category: "connections",
         severity: age >= 6 * 3600 ? "critical" : "warning",
-        title: `pid ${r.pid} has had a transaction open for ${formatMs(age * 1000)}`,
+        title: `Transaction open for ${formatMs(age * 1000)} (pid ${r.pid})`,
         description:
           `Opened by ${r.username ?? "unknown"}${r.application_name ? ` (${r.application_name})` : ""}, currently ${r.state}. ` +
           "Break long batch jobs into smaller transactions where possible.",
@@ -144,7 +144,7 @@ export const longTransactions: PgCheck = {
           { label: "State", value: String(r.state ?? ""), format: "text" },
         ],
         fix: {
-          title: "Cancel the current query",
+          title: "Cancel query",
           sql: `SELECT pg_cancel_backend(${toNumber(r.pid)});\n-- Or end the session entirely:\n-- SELECT pg_terminate_backend(${toNumber(r.pid)});`,
           safety: "caution",
         },
@@ -172,7 +172,7 @@ export const blockedQueries: PgCheck = {
         checkId: "blocked-queries",
         category: "connections",
         severity: waited >= 60 ? "warning" : "info",
-        title: `pid ${r.pid} has been waiting ${formatMs(waited * 1000)} on pid ${blockers.join(", ")}`,
+        title: `Query blocked for ${formatMs(waited * 1000)} (pid ${r.pid})`,
         description:
           `Blocked query: ${oneLine(String(r.query ?? ""), 120)}` +
           (first ? `\nBlocking session (${first.state}): ${oneLine(String(first.query ?? ""), 120)}` : ""),
@@ -184,7 +184,7 @@ export const blockedQueries: PgCheck = {
           { label: "Wait event", value: String(r.wait_event ?? "—"), format: "text" },
         ],
         fix: {
-          title: "Cancel the blocking query",
+          title: "Cancel blocker",
           sql: blockers.map((p) => `SELECT pg_cancel_backend(${Number(p)});`).join("\n"),
           safety: "caution",
           notes: "Cancelling the blocker lets the waiting query continue.",
@@ -212,7 +212,7 @@ export const preparedTransactions: PgCheck = {
       checkId: "prepared-transactions",
       category: "connections",
       severity: "critical",
-      title: `Prepared transaction '${r.gid}' has been pending for ${formatMs(toNumber(r.age_s) * 1000)}`,
+      title: `Roll back abandoned prepared transaction '${r.gid}'`,
       description: "If the transaction manager that created it is gone, finish it by hand.",
       target: { kind: "session", name: String(r.gid) },
       metrics: [
@@ -221,7 +221,7 @@ export const preparedTransactions: PgCheck = {
         { label: "Age", value: toNumber(r.age_s), format: "duration-s" },
       ],
       fix: {
-        title: "Roll it back",
+        title: "Roll back",
         sql: `ROLLBACK PREPARED '${String(r.gid).replace(/'/g, "''")}';`,
         safety: "destructive",
       },

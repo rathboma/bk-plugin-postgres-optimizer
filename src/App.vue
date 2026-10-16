@@ -1,22 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
-import { CATEGORIES, type CategoryId } from "@/core/types";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import AnalyzerView from "@/ui/components/AnalyzerView.vue";
-import CategoryView from "@/ui/components/CategoryView.vue";
-import Icon, { type IconName } from "@/ui/components/Icon.vue";
-import OverviewView from "@/ui/components/OverviewView.vue";
+import ChecksView from "@/ui/components/ChecksView.vue";
+import Icon from "@/ui/components/Icon.vue";
+import RecommendationsView from "@/ui/components/RecommendationsView.vue";
 import SettingsDialog from "@/ui/components/SettingsDialog.vue";
-import TopQueriesView from "@/ui/components/TopQueriesView.vue";
-import {
-  categoryFindings,
-  dismissedCount,
-  init,
-  runChecks,
-  setView,
-  state,
-  supported,
-  type View,
-} from "@/ui/store";
+import SlowQueriesView from "@/ui/components/SlowQueriesView.vue";
+import { init, recommendations, runChecks, setView, state, supported, type View } from "@/ui/store";
 
 onMounted(init);
 
@@ -27,41 +17,26 @@ watch(
   () => content.value?.scrollTo({ top: 0 }),
 );
 
-const isCategory = (v: View): v is CategoryId => CATEGORIES.some((c) => c.id === v);
-
-const nav = computed(() => [
-  { id: "overview" as View, label: "Overview", icon: "overview" as IconName, badge: null },
-  ...CATEGORIES.map((c) => {
-    const list = categoryFindings(c.id);
-    const sev = list.some((f) => f.severity === "critical")
-      ? "critical"
-      : list.some((f) => f.severity === "warning")
-        ? "warning"
-        : list.length
-          ? "info"
-          : null;
-    return {
-      id: c.id as View,
-      label: c.title,
-      icon: c.id as IconName,
-      badge: list.length ? { count: list.length, sev } : null,
-    };
-  }),
+const tabs = computed(() => [
+  { id: "recommendations" as View, label: "Recommendations", count: state.report ? recommendations.value.length : null },
+  { id: "queries" as View, label: "Slow queries", count: null },
+  { id: "analyze" as View, label: "Analyze a query", count: null },
 ]);
+// The full check list is a page of Recommendations.
+const activeTab = computed(() => (state.view === "checks" ? "recommendations" : state.view));
 
-const tools = [
-  { id: "top-queries" as View, label: "Top queries", icon: "list" as IconName },
-  { id: "analyzer" as View, label: "Query analyzer", icon: "analyzer" as IconName },
-];
+// Tick so "Checked 2 min ago" stays current.
+const now = ref(Date.now());
+const timer = window.setInterval(() => (now.value = Date.now()), 30_000);
+onBeforeUnmount(() => window.clearInterval(timer));
 
-const progressLabel = computed(() =>
-  state.running && state.progress.total
-    ? `${state.progress.current} (${state.progress.done + 1}/${state.progress.total})`
-    : "",
-);
-const lastRun = computed(() =>
-  state.report ? new Date(state.report.startedAt).toLocaleTimeString() : null,
-);
+const lastChecked = computed(() => {
+  if (!state.report) return "";
+  const s = Math.max(0, (now.value - new Date(state.report.startedAt).getTime()) / 1000);
+  if (s < 60) return "Checked just now";
+  if (s < 3600) return `Checked ${Math.floor(s / 60)} min ago`;
+  return `Checked at ${new Date(state.report.startedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+});
 </script>
 
 <template>
@@ -70,74 +45,50 @@ const lastRun = computed(() =>
   </div>
 
   <div v-else-if="state.phase === 'unsupported'" class="center column">
-    <Icon name="speed" :size="40" class="logo" />
     <h2>{{ state.databaseType || "This database" }} isn't supported yet</h2>
     <p class="muted">The optimizer currently supports {{ supported.join(", ") }}.</p>
   </div>
 
   <div v-else-if="state.phase === 'error'" class="center column">
-    <Icon name="critical" :size="36" class="error-icon" />
     <h2>Couldn't start the optimizer</h2>
     <pre class="error-text">{{ state.error }}</pre>
   </div>
 
   <div v-else class="layout">
-    <header class="topbar row">
-      <Icon name="speed" :size="20" class="logo" />
-      <div class="title">
-        <h1>Postgres Optimizer</h1>
-        <span class="faint">{{ state.env?.databaseName }} · {{ state.env?.engine }} {{ state.env?.serverVersion.split(" ")[0] }}</span>
-      </div>
-      <span class="pill" :class="state.env?.capabilities.queryStats ? 'sev-success' : 'sev-warning'" title="Query statistics">
-        pg_stat_statements {{ state.env?.capabilities.queryStats ? "on" : "off" }}
-      </span>
-      <span v-if="state.env?.capabilities.hypotheticalIndexes" class="pill sev-success" title="Index suggestions are verified with hypothetical indexes">hypopg on</span>
-      <span v-if="state.env?.readOnly" class="pill">read-only connection</span>
+    <header class="topbar">
+      <nav class="tabs" role="tablist">
+        <button
+          v-for="t in tabs"
+          :key="t.id"
+          role="tab"
+          class="tab"
+          :class="{ active: activeTab === t.id }"
+          :aria-selected="activeTab === t.id"
+          @click="setView(t.id)"
+        >
+          {{ t.label }}
+          <span v-if="t.count" class="count">{{ t.count }}</span>
+        </button>
+      </nav>
       <span class="spacer" />
-      <span v-if="state.running" class="row faint progress"><span class="spinner" />{{ progressLabel }}</span>
-      <span v-else-if="lastRun" class="faint">Checked at {{ lastRun }}</span>
-      <button class="icon-btn" title="Thresholds" @click="state.settingsOpen = true"><Icon name="settings" /></button>
-      <button class="btn btn-primary" :disabled="state.running" @click="runChecks">
-        <Icon name="refresh" :size="16" /> Run checks
+      <span class="status faint">
+        <template v-if="state.running"><span class="spinner" /> Checking…</template>
+        <template v-else>{{ lastChecked }}</template>
+      </span>
+      <button class="icon-btn" title="Check again" :disabled="state.running" @click="runChecks">
+        <Icon name="refresh" />
+      </button>
+      <button class="icon-btn" title="Thresholds" @click="state.settingsOpen = true">
+        <Icon name="settings" />
       </button>
     </header>
 
-    <nav class="sidebar">
-      <button
-        v-for="item in nav"
-        :key="item.id"
-        class="nav-item"
-        :class="{ active: state.view === item.id }"
-        @click="setView(item.id)"
-      >
-        <Icon :name="item.icon" :size="16" />
-        <span class="nav-label">{{ item.label }}</span>
-        <span v-if="item.badge" class="pill" :class="`sev-${item.badge.sev}`">{{ item.badge.count }}</span>
-      </button>
-      <div class="nav-heading">Tools</div>
-      <button
-        v-for="item in tools"
-        :key="item.id"
-        class="nav-item"
-        :class="{ active: state.view === item.id }"
-        @click="setView(item.id)"
-      >
-        <Icon :name="item.icon" :size="16" />
-        <span class="nav-label">{{ item.label }}</span>
-      </button>
-      <span class="spacer" />
-      <label v-if="dismissedCount" class="check faint show-dismissed">
-        <input v-model="state.showDismissed" type="checkbox" />
-        Show {{ dismissedCount }} dismissed
-      </label>
-    </nav>
-
     <main ref="content" class="content">
       <div class="content-inner">
-        <OverviewView v-if="state.view === 'overview'" />
-        <CategoryView v-else-if="isCategory(state.view)" :category="state.view" />
-        <TopQueriesView v-else-if="state.view === 'top-queries'" />
-        <AnalyzerView v-else-if="state.view === 'analyzer'" />
+        <RecommendationsView v-if="state.view === 'recommendations'" />
+        <SlowQueriesView v-else-if="state.view === 'queries'" />
+        <AnalyzerView v-else-if="state.view === 'analyze'" />
+        <ChecksView v-else-if="state.view === 'checks'" />
       </div>
     </main>
 
@@ -154,143 +105,99 @@ const lastRun = computed(() =>
   gap: 10px;
   padding: 24px;
   text-align: center;
+  color: var(--c-text-muted);
 }
 .center.column {
   flex-direction: column;
 }
-.center h2 {
-  font-size: 17px;
-}
-.center p {
-  margin: 0;
-}
-.error-icon {
-  color: var(--c-danger);
-}
 .error-text {
   max-width: 640px;
+  margin: 0;
   white-space: pre-wrap;
-  color: var(--c-danger);
+  color: var(--c-text);
 }
 .layout {
   height: 100%;
-  display: grid;
-  grid-template-columns: 228px 1fr;
-  grid-template-rows: auto 1fr;
-  grid-template-areas:
-    "top top"
-    "side main";
+  display: flex;
+  flex-direction: column;
 }
 .topbar {
-  grid-area: top;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--c-border);
-  background: var(--c-panel);
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.logo {
-  color: var(--c-primary);
-}
-.title {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
-  margin-right: 8px;
-}
-.title h1 {
-  font-size: 14px;
-}
-.title span {
-  font-size: 12px;
-}
-.progress {
-  font-size: 12px;
-  max-width: 320px;
-  overflow: hidden;
-  white-space: nowrap;
-}
-.sidebar {
-  grid-area: side;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 8px;
-  border-right: 1px solid var(--c-border);
-  background: var(--c-panel);
-  overflow-y: auto;
-}
-.nav-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: 4px;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--c-border);
+  flex-shrink: 0;
+}
+.tabs {
+  display: flex;
+  gap: 20px;
+  min-width: 0;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0;
   border: none;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--c-text);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  color: var(--c-text-muted);
   font: inherit;
-  text-align: left;
+  white-space: nowrap;
   cursor: pointer;
 }
-.nav-item:hover {
-  background: var(--c-hover);
-}
-.nav-item.active {
-  background: var(--c-hover);
+.tab:hover {
   color: var(--c-text-strong);
-  font-weight: 600;
 }
-.nav-item.active svg {
-  color: var(--c-primary);
+.tab.active {
+  color: var(--c-text-strong);
+  border-bottom-color: var(--c-text-strong);
 }
-.nav-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.tab:focus-visible {
+  outline: 1px solid var(--c-text-muted);
+}
+.count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--c-hover);
+  color: var(--c-text);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+  font-size: 12px;
   white-space: nowrap;
 }
-.nav-heading {
-  margin: 14px 8px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--c-text-faint);
-}
-.show-dismissed {
-  padding: 6px 8px;
-  font-size: 12px;
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .content {
-  grid-area: main;
+  flex: 1;
   overflow-y: auto;
-  min-width: 0;
+  min-height: 0;
 }
 .content-inner {
-  max-width: 1100px;
-  padding: 16px 20px 40px;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 24px 24px 48px;
 }
 
-@media (max-width: 720px) {
-  .layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto 1fr;
-    grid-template-areas:
-      "top"
-      "side"
-      "main";
-  }
-  .sidebar {
-    flex-direction: row;
-    flex-wrap: wrap;
-    border-right: none;
-    border-bottom: 1px solid var(--c-border);
-  }
-  .nav-heading,
-  .sidebar .spacer {
+@media (max-width: 560px) {
+  .status {
     display: none;
+  }
+  .tabs {
+    gap: 14px;
   }
 }
 </style>

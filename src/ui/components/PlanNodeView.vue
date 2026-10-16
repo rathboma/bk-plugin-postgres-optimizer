@@ -3,7 +3,6 @@ import { computed, ref } from "vue";
 import type { PlanIssue, PlanNode } from "@/core/types";
 import { formatMs, formatNumber } from "@/core/format";
 import Icon from "./Icon.vue";
-import SeverityIcon from "./SeverityIcon.vue";
 
 const props = defineProps<{
   node: PlanNode;
@@ -41,7 +40,7 @@ const misestimate = computed(() => {
   <div class="plan-node">
     <div
       class="line"
-      :class="{ hot: share >= 0.3, open }"
+      :class="{ open }"
       :style="{ paddingLeft: `${8 + depth * 18}px` }"
       role="button"
       tabindex="0"
@@ -49,14 +48,14 @@ const misestimate = computed(() => {
       @keydown.enter.prevent="open = !open"
     >
       <Icon name="chevron" :size="14" class="chev" :class="{ invisible: !node.details.length }" />
-      <SeverityIcon v-if="worst" :severity="worst.severity" :size="14" />
-      <span class="label">{{ node.label }}</span>
+      <span v-if="worst" class="dot" :class="worst.severity === 'info' ? '' : worst.severity" :title="worst.title" />
+      <span class="label" :class="{ hot: share >= 0.3 }">{{ node.label }}</span>
       <span class="spacer" />
       <span class="stat" :title="executed ? 'Actual rows (per loop) / estimated rows' : 'Estimated rows'">
         <template v-if="executed">
           {{ formatNumber(node.actualRows) }}
           <span class="faint">/ {{ formatNumber(node.estimatedRows) }} est</span>
-          <span v-if="misestimate" class="pill sev-warning">{{ misestimate }}x off</span>
+          <span v-if="misestimate" class="off">{{ misestimate }}× off</span>
         </template>
         <template v-else>{{ formatNumber(node.estimatedRows) }} rows</template>
       </span>
@@ -88,15 +87,15 @@ const misestimate = computed(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 60%, transparent);
+  padding: 5px 10px 5px 8px;
+  border-bottom: 1px solid var(--c-border);
   cursor: pointer;
 }
 .line:hover {
   background: var(--c-subtle);
 }
-.line.hot .label {
-  color: var(--c-warning);
+.plan-node:last-child > .line:last-child {
+  border-bottom: none;
 }
 .chev {
   color: var(--c-text-faint);
@@ -109,11 +108,15 @@ const misestimate = computed(() => {
   transform: rotate(90deg);
 }
 .label {
-  color: var(--c-text-strong);
+  color: var(--c-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+.label.hot {
+  color: var(--c-text-strong);
+  font-weight: 600;
 }
 .stat {
   white-space: nowrap;
@@ -122,6 +125,9 @@ const misestimate = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+.off {
+  color: var(--c-warning);
 }
 .time {
   position: relative;
@@ -134,7 +140,7 @@ const misestimate = computed(() => {
   top: 1px;
   bottom: 1px;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--c-warning) 28%, transparent);
+  background: color-mix(in srgb, var(--c-base) 10%, transparent);
 }
 .value {
   position: relative;
@@ -144,9 +150,7 @@ const misestimate = computed(() => {
   flex-direction: column;
   gap: 3px;
   padding: 6px 10px;
-  margin-top: 2px;
-  margin-bottom: 4px;
-  margin-right: 8px;
+  margin: 4px 8px 6px 0;
   border-radius: var(--radius);
   background: var(--c-code-bg);
 }

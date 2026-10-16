@@ -61,14 +61,14 @@ describe.skipIf(!PG_URL)("PostgreSQL checks", () => {
   });
 
   it("finds slow queries", () => {
-    const titles = findingTitles("slow-queries");
-    expect(titles.some((t) => t.includes("orders WHERE customer_id"))).toBe(true);
+    const queries = results.get("slow-queries")!.findings.map((f) => f.query ?? "");
+    expect(queries.some((q) => q.includes("orders WHERE customer_id"))).toBe(true);
   });
 
   it("finds the foreign key without an index", () => {
     const r = results.get("unindexed-foreign-keys")!;
     expect(r.findings).toHaveLength(1);
-    expect(r.findings[0].title).toContain("orders(customer_id)");
+    expect(r.findings[0].title).toBe("Add an index on orders (customer_id)");
     expect(r.findings[0].fix?.sql).toContain("CREATE INDEX CONCURRENTLY orders_customer_id_idx");
   });
 
@@ -97,9 +97,18 @@ describe.skipIf(!PG_URL)("PostgreSQL checks", () => {
 
   it("suggests indexes from query plans", () => {
     const titles = findingTitles("index-suggestions");
-    expect(titles).toContain("Add an index on public.orders (customer_id)");
+    expect(titles).toContain("Add an index on orders (customer_id)");
     expect(titles.some((t) => t.includes("customers") && t.includes("lower(email)"))).toBe(true);
     expect(titles.some((t) => t.includes("orders") && t.includes("created_at DESC"))).toBe(true);
+  });
+
+  it("gives the foreign key index and the matching suggestion the same group key", () => {
+    const fk = results.get("unindexed-foreign-keys")!.findings[0];
+    const suggestion = results
+      .get("index-suggestions")!
+      .findings.find((f) => f.title === "Add an index on orders (customer_id)");
+    expect(fk.groupKey).toBe("index:public.orders(customer_id)");
+    expect(suggestion?.groupKey).toBe(fk.groupKey);
   });
 
   it("validates suggestions with hypopg when it is installed", async () => {
@@ -108,7 +117,7 @@ describe.skipIf(!PG_URL)("PostgreSQL checks", () => {
     await client.query("CREATE EXTENSION IF NOT EXISTS hypopg");
     const env2 = await postgresAdapter.detectEnvironment(runner, { readOnly: false });
     const res = await runCheck(postgresAdapter.checks.find((c) => c.id === "index-suggestions")!, runner, env2, settings);
-    const f = res.findings.find((x) => x.title === "Add an index on public.orders (customer_id)");
+    const f = res.findings.find((x) => x.title === "Add an index on orders (customer_id)");
     expect(f?.description).toContain("estimated cost drops");
     await client.query("DROP EXTENSION hypopg");
   });

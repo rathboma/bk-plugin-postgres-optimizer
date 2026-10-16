@@ -1,15 +1,14 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import type { IndexSuggestion } from "@/core/types";
-import { displayColumns, formatMs, formatNumber, formatPercent } from "@/core/format";
-import { actions, analyze, state } from "../store";
+import { displayColumns, formatMs, formatNumber, formatReduction } from "@/core/format";
+import { actions, analyze, setView, state } from "../store";
 import Icon from "./Icon.vue";
 import PlanNodeView from "./PlanNodeView.vue";
-import SeverityIcon from "./SeverityIcon.vue";
-import SqlBlock from "./SqlBlock.vue";
 
 const result = computed(() => state.analyzer.result);
 const hasParams = computed(() => /\$\d+/.test(state.analyzer.sql));
+const showPlan = ref(false);
 
 function onKey(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -18,78 +17,91 @@ function onKey(e: KeyboardEvent) {
   }
 }
 
-function suggestionStatus(s: IndexSuggestion) {
-  if (s.coveredBy) return { label: `Already covered by ${s.coveredBy}`, cls: "" };
-  if (!s.validation) return { label: "Not verified", cls: "" };
-  if (!s.validation.usedByPlanner) return { label: "Planner would not use it", cls: "sev-warning" };
-  const saving = s.validation.costBefore > 0 ? 1 - s.validation.costAfter / s.validation.costBefore : 0;
-  return { label: `Verified: cost −${formatPercent(saving * 100, 0)}`, cls: "sev-success" };
+function tableName(s: IndexSuggestion) {
+  return s.schema && s.schema !== "public" ? `${s.schema}.${s.table}` : s.table;
 }
+
+function verdict(s: IndexSuggestion) {
+  if (s.coveredBy) return `An existing index (${s.coveredBy}) already covers this, so a new one won't help. Stale statistics or a filter matching too many rows can keep the planner from using it.`;
+  if (!s.validation) return "Not verified.";
+  if (!s.validation.usedByPlanner) return "The planner would not use it.";
+  const saving = s.validation.costBefore > 0 ? 1 - s.validation.costAfter / s.validation.costBefore : 0;
+  return `Verified with a hypothetical index: estimated cost ${formatReduction(saving)} lower.`;
+}
+
+const summary = computed(() => {
+  const r = result.value;
+  if (!r?.ok) return "";
+  return [
+    r.mode,
+    r.executionMs !== undefined ? `ran in ${formatMs(r.executionMs)}` : "",
+    r.planningMs !== undefined ? `planning ${formatMs(r.planningMs)}` : "",
+    `estimated cost ${formatNumber(r.totalCost)}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+});
 </script>
 
 <template>
   <div class="analyzer">
-    <header>
-      <h2>Query analyzer</h2>
-      <p class="muted">
-        Shows the query plan, flags slow operations and suggests indexes. Queries from pg_stat_statements with
-        <code>$1</code> placeholders are planned generically.
-      </p>
-    </header>
+    <div class="view-header">
+      <h1>Analyze a query</h1>
+      <p>See the query plan, what makes the query slow, and which index would help.</p>
+    </div>
 
-    <div class="editor card">
+    <div class="editor">
       <textarea
         v-model="state.analyzer.sql"
-        rows="7"
+        rows="6"
         spellcheck="false"
         placeholder="SELECT * FROM orders WHERE customer_id = 42 ORDER BY created_at DESC LIMIT 20"
         @keydown="onKey"
       />
       <div class="row bar">
-        <label class="check" :class="{ disabled: hasParams }" :title="hasParams ? 'Replace the $1 placeholders with values to execute the query' : ''">
-          <input v-model="state.analyzer.analyze" type="checkbox" :disabled="hasParams" />
-          Execute the query (EXPLAIN ANALYZE)
-        </label>
-        <span v-if="state.analyzer.analyze && !hasParams" class="faint hint">
-          Runs the query for real, inside a read-only transaction. SELECT only.
-        </span>
-        <span class="spacer" />
         <button class="btn btn-primary" :disabled="state.analyzer.running || !state.analyzer.sql.trim()" @click="analyze()">
           <span v-if="state.analyzer.running" class="spinner" />
-          <Icon v-else name="play" :size="16" />
           Analyze
         </button>
+        <label
+          class="check muted"
+          :class="{ disabled: hasParams }"
+          :title="hasParams ? 'Replace the $1 placeholders with values to run the query' : 'Runs the query inside a read-only transaction. SELECT only.'"
+        >
+          <input v-model="state.analyzer.analyze" type="checkbox" :disabled="hasParams" />
+          Run it for real timings (EXPLAIN ANALYZE)
+        </label>
+        <span class="spacer" />
+        <span class="faint kbd">Ctrl+Enter</span>
       </div>
     </div>
 
-    <div v-if="result && !result.ok" class="error-box">
-      <Icon name="critical" :size="16" />
-      <span>{{ result.error }}</span>
-    </div>
+    <p v-if="!result && !state.analyzer.running" class="faint hint">
+      Or pick one from <button class="link inline" @click="setView('queries')">Slow queries</button>.
+    </p>
+
+    <p v-if="result && !result.ok" class="error">{{ result.error }}</p>
 
     <template v-if="result && result.ok && result.plan">
-      <div class="row summary">
-        <span class="pill">{{ result.mode }}</span>
-        <span v-if="result.executionMs !== undefined">Execution <strong>{{ formatMs(result.executionMs) }}</strong></span>
-        <span v-if="result.planningMs !== undefined">Planning <strong>{{ formatMs(result.planningMs) }}</strong></span>
-        <span>Estimated cost <strong>{{ formatNumber(result.totalCost) }}</strong></span>
-      </div>
+      <p class="faint summary">{{ summary }}</p>
 
       <section v-if="result.suggestions.length">
-        <h3><Icon name="bulb" :size="16" class="bulb" /> Index suggestions</h3>
-        <div class="suggestions">
-          <div v-for="s in result.suggestions" :key="s.ddl" class="suggestion card">
-            <div class="row">
-              <strong>{{ s.schema ? `${s.schema}.` : "" }}{{ s.table }} ({{ displayColumns(s.columns) }})</strong>
-              <span class="spacer" />
-              <span class="pill" :class="suggestionStatus(s).cls">{{ suggestionStatus(s).label }}</span>
+        <h2>Suggested indexes</h2>
+        <div class="list">
+          <div v-for="s in result.suggestions" :key="s.ddl" class="item">
+            <div class="text">
+              <div class="title">Add an index on {{ tableName(s) }} ({{ displayColumns(s.columns) }})</div>
+              <p class="muted">{{ s.reason }}. {{ verdict(s) }}</p>
+              <code class="ddl faint">{{ s.ddl }}</code>
             </div>
-            <p class="muted">{{ s.reason }}.</p>
-            <SqlBlock v-if="!s.coveredBy" :sql="s.ddl" />
-            <p v-if="s.coveredBy" class="muted small">
-              An existing index already starts with these columns, so a new one won't help. The planner may be skipping
-              it because statistics are stale (run ANALYZE) or because the filter matches too many rows for an index to pay off.
-            </p>
+            <button
+              v-if="!s.coveredBy"
+              class="btn btn-sm"
+              :class="{ 'btn-primary': s.validation?.usedByPlanner }"
+              @click="actions.openInEditor(s.ddl)"
+            >
+              Create index <Icon name="open" :size="13" />
+            </button>
           </div>
         </div>
         <p v-if="!state.env?.capabilities.hypotheticalIndexes" class="faint small">
@@ -98,46 +110,40 @@ function suggestionStatus(s: IndexSuggestion) {
       </section>
 
       <section v-if="result.issues.length">
-        <h3>Issues</h3>
-        <div class="issues">
-          <div v-for="(i, n) in result.issues" :key="n" class="issue card" :class="`sev-${i.severity}`">
-            <SeverityIcon :severity="i.severity" />
-            <div class="issue-body">
-              <strong>{{ i.title }}</strong>
+        <h2>What's slow</h2>
+        <div class="list">
+          <div v-for="(i, n) in result.issues" :key="n" class="item">
+            <span class="dot" :class="i.severity === 'info' ? '' : i.severity" />
+            <div class="text">
+              <div class="title">{{ i.title }}</div>
               <p class="muted">{{ i.description }}</p>
-              <div v-if="i.fix" class="row">
-                <button class="btn btn-sm" @click="actions.openInEditor(i.fix.sql)">
-                  <Icon name="open" :size="14" /> {{ i.fix.title }}
-                </button>
-                <code class="faint">{{ i.fix.sql.split("\n")[0] }}</code>
-              </div>
             </div>
+            <button v-if="i.fix" class="btn btn-sm" @click="actions.openInEditor(i.fix.sql)">
+              {{ i.fix.title }} <Icon name="open" :size="13" />
+            </button>
           </div>
         </div>
       </section>
-      <p v-else-if="!result.suggestions.length" class="ok row">
-        <Icon name="check" :size="16" /> No problems spotted in this plan.
+      <p v-else-if="!result.suggestions.length" class="row ok">
+        <span class="dot good" /> No problems found in this plan.
       </p>
 
       <section>
         <div class="row">
-          <h3>Plan</h3>
-          <span class="spacer" />
-          <button class="btn btn-sm btn-ghost" @click="actions.copy(JSON.stringify(result.rawPlan, null, 2))">
-            <Icon name="copy" :size="14" /> Copy JSON
+          <button class="link plan-toggle" :aria-expanded="showPlan" @click="showPlan = !showPlan">
+            <Icon name="chevron" :size="16" class="chev" :class="{ open: showPlan }" /> Query plan
           </button>
+          <span class="spacer" />
+          <button v-if="showPlan" class="link" @click="actions.copy(JSON.stringify(result.rawPlan, null, 2))">Copy JSON</button>
         </div>
-        <div class="plan card">
-          <PlanNodeView
-            :node="result.plan"
-            :depth="0"
-            :total-ms="result.executionMs"
-            :issues="result.issues"
-          />
-        </div>
-        <p class="faint small">
-          Click a step for its details.{{ result.executionMs !== undefined ? " The bar shows the time spent in each step itself." : " Run with EXPLAIN ANALYZE to see where the time goes." }}
-        </p>
+        <template v-if="showPlan">
+          <div class="list plan">
+            <PlanNodeView :node="result.plan" :depth="0" :total-ms="result.executionMs" :issues="result.issues" />
+          </div>
+          <p class="faint small">
+            Click a step for its details.{{ result.executionMs !== undefined ? " Bars show the time spent in each step." : " Run it for real to see where the time goes." }}
+          </p>
+        </template>
       </section>
     </template>
   </div>
@@ -147,108 +153,112 @@ function suggestionStatus(s: IndexSuggestion) {
 .analyzer {
   display: flex;
   flex-direction: column;
-  gap: 14px;
 }
-h2 {
-  font-size: 17px;
-}
-h3 {
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-header p {
-  margin: 4px 0 0;
+.view-header {
+  margin-bottom: 14px;
 }
 .editor {
-  padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 .editor textarea {
   width: 100%;
   min-height: 110px;
-  border: none;
-  background: var(--c-code-bg);
+  padding: 10px 12px;
 }
 .bar {
   flex-wrap: wrap;
+  gap: 14px;
+}
+.check {
+  font-size: 12px;
 }
 .check.disabled {
   opacity: 0.5;
 }
-.hint {
-  font-size: 12px;
+.kbd {
+  font-size: 11px;
 }
-.error-box {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
+.hint {
+  margin-top: 16px;
+}
+.link.inline {
+  font-size: inherit;
+  text-decoration: underline;
+}
+.error {
+  margin-top: 16px;
   padding: 10px 12px;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--c-danger) 12%, transparent);
-  color: var(--c-danger);
+  border-left: 2px solid var(--c-critical);
+  background: var(--c-subtle);
+  color: var(--c-text-strong);
   white-space: pre-wrap;
 }
 .summary {
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  color: var(--c-text-muted);
+  margin-top: 18px;
+  font-size: 12px;
 }
-.summary strong {
-  color: var(--c-text-strong);
+section {
+  margin-top: 20px;
 }
-.bulb {
-  color: var(--c-primary);
+h2 {
+  margin-bottom: 8px;
 }
-.suggestions,
-.issues {
+.item {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px 10px 14px;
 }
-.suggestion {
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.item .dot {
+  margin-top: 6px;
 }
-.suggestion p {
-  margin: 0;
+.item .btn {
+  flex-shrink: 0;
 }
-.issue {
-  display: flex;
-  gap: 10px;
-  padding: 10px 12px;
-  border-left: 3px solid var(--sev);
-}
-.issue-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.text {
+  flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
-.issue-body p {
-  margin: 0;
+.title {
+  color: var(--c-text-strong);
+  font-weight: 500;
+}
+.text p {
   word-break: break-word;
 }
-.issue-body code {
+.ddl {
+  margin-top: 4px;
+  font-size: 11.5px;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+.ok {
+  margin-top: 20px;
+  color: var(--c-text-muted);
+}
+.plan-toggle {
+  font-size: 13px;
+  color: var(--c-text);
+  font-weight: 500;
+}
+.chev {
+  transition: transform 0.12s;
+}
+.chev.open {
+  transform: rotate(90deg);
 }
 .plan {
+  margin-top: 8px;
   overflow-x: auto;
-  padding: 2px 0;
 }
 .small {
   font-size: 12px;
-  margin: 6px 0 0;
-}
-.ok {
-  color: var(--c-success);
+  margin-top: 6px;
 }
 </style>

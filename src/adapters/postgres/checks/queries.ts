@@ -1,5 +1,5 @@
 import type { Check, Finding, Row } from "@/core/types";
-import { formatMs, formatPercent, oneLine, toNumber } from "@/core/format";
+import { formatBytes, formatMs, formatPercent, toNumber } from "@/core/format";
 import type { PostgresEnvironment } from "../environment";
 import { SELF_MARKER, toQueryStat, topQueriesSql } from "../queryStats";
 
@@ -35,7 +35,7 @@ export const slowQueries: PgCheck = {
         checkId: "slow-queries",
         category: "queries",
         severity: q.meanTimeMs >= critical && q.calls >= 100 ? "critical" : "warning",
-        title: `Averages ${formatMs(q.meanTimeMs)} per call: ${oneLine(q.query, 80)}`,
+        title: `Slow query averaging ${formatMs(q.meanTimeMs)}`,
         description:
           `Called ${q.calls.toLocaleString("en-US")} times, ${formatMs(q.totalTimeMs)} in total. ` +
           "Analyze it to see the plan and any missing indexes.",
@@ -75,7 +75,7 @@ export const highImpactQueries: PgCheck = {
         checkId: "high-impact-queries",
         category: "queries",
         severity: pct >= 50 ? "warning" : "info",
-        title: `${formatPercent(pct, 0)} of all query time: ${oneLine(q.query, 80)}`,
+        title: `Query using ${formatPercent(pct, 0)} of all database time`,
         description:
           `This query has run ${q.calls.toLocaleString("en-US")} times for ${formatMs(q.totalTimeMs)} in total. ` +
           "Speeding it up, calling it less often or caching its result has the biggest payoff.",
@@ -115,7 +115,7 @@ export const tempSpillQueries: PgCheck = {
         checkId: "temp-spill-queries",
         category: "queries",
         severity: perCall >= 64 * 1024 * 1024 ? "warning" : "info",
-        title: `Writes temp files on every call: ${oneLine(q.query, 80)}`,
+        title: `Query spills ${formatBytes(perCall)} to disk on every call`,
         description:
           "Sorting or hashing this query's rows doesn't fit in work_mem, so PostgreSQL spills to disk. " +
           "An index that returns rows already sorted, fewer rows, or more work_mem for this query avoids it.",
@@ -128,7 +128,7 @@ export const tempSpillQueries: PgCheck = {
           { label: "Mean", value: q.meanTimeMs, format: "ms" },
         ],
         fix: {
-          title: "Raise work_mem for this query only",
+          title: "Raise work_mem",
           sql:
             `-- Applies only to the current transaction. Raising work_mem globally multiplies\n` +
             `-- across every sort and hash in every connection, so prefer this or a per-role setting.\n` +
@@ -162,7 +162,7 @@ export const diskReadQueries: PgCheck = {
         checkId: "disk-read-queries",
         category: "queries",
         severity: "info",
-        title: `Only ${formatPercent(q.cacheHitRatio * 100, 0)} of reads hit cache: ${oneLine(q.query, 70)}`,
+        title: `Query reads mostly from disk (${formatPercent(q.cacheHitRatio * 100, 0)} cache hits)`,
         description:
           "This query reads a lot of data from disk (or the OS cache). If it should touch only a few rows, " +
           "an index is probably missing. Otherwise the working set may not fit in shared_buffers.",
@@ -217,7 +217,7 @@ export const longRunningQueries: PgCheck = {
         checkId: "long-running-queries",
         category: "queries",
         severity: seconds >= settings.longRunningQueryS * 10 ? "critical" : "warning",
-        title: `Running for ${formatMs(seconds * 1000)} (pid ${r.pid}): ${oneLine(String(r.query ?? ""), 70)}`,
+        title: `Query running for ${formatMs(seconds * 1000)} (pid ${r.pid})`,
         description:
           `Started by ${r.username ?? "unknown"}${r.application_name ? ` from ${r.application_name}` : ""}. ` +
           (r.wait_event ? `Currently waiting on ${r.wait_event_type}: ${r.wait_event}. ` : "") +
@@ -230,7 +230,7 @@ export const longRunningQueries: PgCheck = {
           { label: "Waiting on", value: r.wait_event ? String(r.wait_event) : "—", format: "text" },
         ],
         fix: {
-          title: "Cancel the query",
+          title: "Cancel query",
           sql: `-- Cancels the running statement; the session stays connected.\nSELECT pg_cancel_backend(${toNumber(r.pid)});`,
           safety: "caution",
         },

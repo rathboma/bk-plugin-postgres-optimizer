@@ -1,9 +1,9 @@
 import type { Check, Finding, QueryRunner, Row } from "@/core/types";
-import { formatBytes, formatNumber, formatPercent, toNumber } from "@/core/format";
+import { formatBytes, formatNumber, formatPercent, plural, toNumber } from "@/core/format";
 import type { PostgresEnvironment } from "../environment";
 import { findRedundantIndexes, loadIndexes, type IndexInfo } from "../indexCatalog";
 import { SELF_MARKER, topQueriesSql, toQueryStat } from "../queryStats";
-import { indexName, qualifiedName, quoteIdent } from "../sql";
+import { indexName, qualifiedName, quoteIdent, shortName } from "../sql";
 import { toStringArray } from "../rows";
 
 type PgCheck = Check<PostgresEnvironment>;
@@ -56,7 +56,6 @@ export const unindexedForeignKeys: PgCheck = {
     const findings: Finding[] = rows.map((r) => {
       const columns = toStringArray(r.columns);
       const table = qualifiedName(String(r.schema), String(r.table_name));
-      const refTable = qualifiedName(String(r.ref_schema), String(r.ref_table));
       const estRows = toNumber(r.estimated_rows);
       const cascades = r.on_delete === "c" || r.on_delete === "n" || r.on_delete === "d";
       const name = indexName(String(r.table_name), columns);
@@ -65,10 +64,11 @@ export const unindexedForeignKeys: PgCheck = {
         checkId: "unindexed-foreign-keys",
         category: "indexes",
         severity: estRows >= settings.largeTableRows ? "warning" : "info",
-        title: `${table}(${columns.join(", ")}) references ${refTable} but has no index`,
+        title: `Add an index on ${shortName(String(r.schema), String(r.table_name))} (${columns.join(", ")})`,
+        groupKey: `index:${r.schema}.${r.table_name}(${columns.join(",")})`.toLowerCase(),
         description:
-          `Joining ${table} to ${refTable}, and every delete or key update on ${refTable}, ` +
-          `has to scan ${table} to find matching rows` +
+          `The foreign key to ${shortName(String(r.ref_schema), String(r.ref_table))} has no index. Joins, and every delete or key update on ` +
+          `${shortName(String(r.ref_schema), String(r.ref_table))}, have to scan ${shortName(String(r.schema), String(r.table_name))} to find matching rows` +
           (cascades ? " (the constraint also cascades, making deletes on the parent slower)." : ".") +
           (estRows < settings.largeTableRows ? " The table is small today, so this matters more as it grows." : ""),
         target: { kind: "constraint", schema: String(r.schema), name: String(r.constraint_name), table: String(r.table_name) },
@@ -77,7 +77,7 @@ export const unindexedForeignKeys: PgCheck = {
           { label: "Table size", value: toNumber(r.table_bytes), format: "bytes" },
         ],
         fix: {
-          title: "Create the index",
+          title: "Create index",
           sql:
             `-- CONCURRENTLY builds without blocking writes; it can't run inside a transaction.\n` +
             `CREATE INDEX CONCURRENTLY ${quoteIdent(name)}\n  ON ${table} (${columns.map(quoteIdent).join(", ")});`,
@@ -143,14 +143,13 @@ export const seqScanHeavyTables: PgCheck = {
       const live = toNumber(r.n_live_tup);
       const tupRead = toNumber(r.seq_tup_read);
       const seqPct = (100 * seq) / Math.max(1, seq + idx);
-      const table = qualifiedName(String(r.schema), String(r.table_name));
       const rel = related.get(String(r.table_name).toLowerCase());
       return {
         key: `seq-scan-heavy-tables:${r.schema}.${r.table_name}`,
         checkId: "seq-scan-heavy-tables",
         category: "indexes",
         severity: tupRead >= 1e9 || (live >= 1e6 && seq >= 100) ? "warning" : "info",
-        title: `${table} is read with a full scan ${formatPercent(seqPct, 0)} of the time`,
+        title: `${shortName(String(r.schema), String(r.table_name))} is mostly read with full table scans (${formatPercent(seqPct, 0)})`,
         description:
           `${formatNumber(seq)} sequential scans have read ${formatNumber(tupRead)} rows from this ` +
           `${formatNumber(live)} row table. ` +
@@ -215,9 +214,9 @@ export const unusedIndexes: PgCheck = {
       checkId: "unused-indexes",
       category: "indexes",
       severity: !young && ix.sizeBytes >= 100 * MB ? "warning" : "info",
-      title: `${qualifiedName(ix.schema, ix.name)} on ${ix.table} has never been used (${formatBytes(ix.sizeBytes)})`,
+      title: `Drop unused index ${shortName(ix.schema, ix.name)} (${formatBytes(ix.sizeBytes)})`,
       description:
-        `No query has used this index${age !== null ? ` in the ${Math.max(1, Math.round(age))} days since statistics were reset` : ""}. ` +
+        `No query has used this index since statistics were reset${age !== null ? ` ${plural(Math.max(1, Math.round(age)), "day")} ago` : ""}. ` +
         "It still has to be updated on every insert and update. " +
         (young ? "Statistics are recent, so give it more time before dropping. " : "") +
         (env.isReplica
@@ -230,7 +229,7 @@ export const unusedIndexes: PgCheck = {
         { label: "Table rows", value: ix.tableRows },
       ],
       fix: {
-        title: "Drop the index",
+        title: "Drop index",
         sql:
           `-- To recreate it later:\n-- ${ix.definition};\n` +
           `DROP INDEX CONCURRENTLY ${qualifiedName(ix.schema, ix.name)};`,
@@ -255,8 +254,8 @@ export const duplicateIndexes: PgCheck = {
       category: "indexes",
       severity: exactDuplicate || ix.sizeBytes >= 100 * MB ? "warning" : "info",
       title: exactDuplicate
-        ? `${qualifiedName(ix.schema, ix.name)} is a duplicate of ${coveredBy.name}`
-        : `${qualifiedName(ix.schema, ix.name)} is covered by ${coveredBy.name}`,
+        ? `Drop duplicate index ${shortName(ix.schema, ix.name)}`
+        : `Drop redundant index ${shortName(ix.schema, ix.name)}`,
       description: exactDuplicate
         ? `Both indexes on ${ix.table} index (${ix.keyColumns.join(", ")}). Keeping one is enough.`
         : `${coveredBy.name} on (${coveredBy.keyColumns.join(", ")}) starts with the same columns as ` +
@@ -268,7 +267,7 @@ export const duplicateIndexes: PgCheck = {
         { label: `${coveredBy.name} scans`, value: coveredBy.scans },
       ],
       fix: {
-        title: "Drop the redundant index",
+        title: "Drop index",
         sql:
           `-- Kept: ${coveredBy.definition};\n-- To recreate the dropped index later:\n-- ${ix.definition};\n` +
           `DROP INDEX CONCURRENTLY ${qualifiedName(ix.schema, ix.name)};`,
@@ -318,7 +317,7 @@ export const invalidIndexes: PgCheck = {
         checkId: "invalid-indexes",
         category: "indexes",
         severity: "warning",
-        title: `${name} on ${ix.table} is invalid`,
+        title: `Rebuild invalid index ${shortName(ix.schema, ix.name)}`,
         description:
           "The index build failed or was cancelled. PostgreSQL won't use it for reads but keeps updating it on writes. " +
           (ix.unique ? "It is a unique index, so the build most likely failed because of duplicate values. " : "") +
@@ -326,7 +325,7 @@ export const invalidIndexes: PgCheck = {
         target: { kind: "index", schema: ix.schema, name: ix.name, table: ix.table },
         metrics: [{ label: "Size", value: ix.sizeBytes, format: "bytes" }],
         fix: {
-          title: "Rebuild the index",
+          title: "Rebuild index",
           sql: `-- Or just drop it: DROP INDEX CONCURRENTLY ${name};\n${rebuild}`,
           safety: "caution",
         },

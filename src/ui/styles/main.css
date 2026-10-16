@@ -1,6 +1,10 @@
 /*
- * Colors come from the host theme (injected into #app-theme as CSS variables).
- * Fallbacks match Beekeeper Studio's dark theme for running outside the app.
+ * Colors come from the host theme (injected into #app-theme as CSS variables),
+ * so the plugin looks like the rest of Beekeeper Studio in every theme.
+ * Fallbacks match the dark theme for running outside the app.
+ *
+ * Keep it quiet: text in a few shades of the theme's base color, hairline
+ * borders, and color only for small severity dots.
  */
 :root {
   --c-base: var(--theme-base, #fff);
@@ -11,21 +15,20 @@
   --c-text-muted: var(--text-light, rgba(255, 255, 255, 0.57));
   --c-text-faint: var(--text-lighter, rgba(255, 255, 255, 0.37));
   --c-border: var(--border-color, rgba(255, 255, 255, 0.1));
-  --c-primary: var(--theme-primary, #fad83b);
-  --c-danger: var(--brand-danger, #ff5d59);
-  --c-warning: var(--brand-warning, #ff8d21);
-  --c-info: var(--brand-info, #4ad0ff);
-  --c-success: var(--brand-success, #15db95);
-  --c-hover: color-mix(in srgb, var(--c-base) 6%, transparent);
-  --c-subtle: color-mix(in srgb, var(--c-base) 3.5%, transparent);
-  --c-code-bg: color-mix(in srgb, var(--c-base) 5%, var(--c-bg));
+  --c-hover: color-mix(in srgb, var(--c-base) 5%, transparent);
+  --c-subtle: color-mix(in srgb, var(--c-base) 3%, transparent);
+  --c-code-bg: color-mix(in srgb, var(--c-base) 4%, var(--c-bg));
+  /* Severity, toned down toward the text color so it never shouts. */
+  --c-critical: color-mix(in srgb, var(--brand-danger, #ff5d59) 80%, var(--c-text));
+  --c-warning: color-mix(in srgb, var(--brand-warning, #ff8d21) 70%, var(--c-text));
+  --c-good: color-mix(in srgb, var(--brand-success, #15db95) 60%, var(--c-text));
   --c-keyword: var(--bks-text-editor-keyword-fg-color, #ff78f7);
-  --c-string: var(--bks-text-editor-string-fg-color, #15db95);
+  --c-string: var(--bks-text-editor-string-fg-color, #fad83b);
   --c-number: var(--bks-text-editor-number-fg-color, #fad83b);
   --c-comment: var(--bks-text-editor-comment-fg-color, rgba(255, 255, 255, 0.37));
   --font: var(--font-family, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
   --font-mono: var(--font-family-mono, ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace);
-  --radius: 6px;
+  --radius: 5px;
   color-scheme: dark light;
 }
 
@@ -45,7 +48,7 @@ body {
   color: var(--c-text);
   font-family: var(--font);
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -63,15 +66,19 @@ body {
 
 h1,
 h2,
-h3,
-h4 {
+h3 {
   color: var(--c-text-strong);
   margin: 0;
   font-weight: 600;
 }
-
-a {
-  color: inherit;
+h1 {
+  font-size: 16px;
+}
+h2 {
+  font-size: 13px;
+}
+p {
+  margin: 0;
 }
 
 code,
@@ -81,17 +88,17 @@ pre,
   font-size: 12px;
 }
 
-/* ---- Buttons ----------------------------------------------------------- */
+/* ---- Buttons: same weight as the app's own ------------------------------ */
 
 .btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   height: 28px;
-  padding: 0 10px;
+  padding: 0 12px;
   border-radius: var(--radius);
   border: 1px solid var(--c-border);
-  background: var(--c-subtle);
+  background: transparent;
   color: var(--c-text-strong);
   font: inherit;
   font-weight: 500;
@@ -102,32 +109,37 @@ pre,
   background: var(--c-hover);
 }
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: default;
 }
-.btn:focus-visible,
-.icon-btn:focus-visible,
-.nav-item:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--c-primary) 70%, transparent);
-  outline-offset: 1px;
-}
 .btn-primary {
-  background: var(--c-primary);
-  border-color: var(--c-primary);
-  color: #111;
+  background: var(--c-text-strong);
+  border-color: transparent;
+  color: var(--c-bg);
 }
 .btn-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--c-primary) 85%, #fff);
+  background: var(--c-text-strong);
+  opacity: 0.88;
 }
 .btn-sm {
-  height: 24px;
-  padding: 0 8px;
+  height: 26px;
+  padding: 0 10px;
   font-size: 12px;
 }
-.btn-ghost {
-  background: transparent;
-  border-color: transparent;
-  color: var(--c-text);
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--c-text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.link:hover {
+  color: var(--c-text-strong);
 }
 .icon-btn {
   display: inline-flex;
@@ -144,6 +156,13 @@ pre,
 .icon-btn:hover {
   background: var(--c-hover);
   color: var(--c-text-strong);
+}
+.btn:focus-visible,
+.link:focus-visible,
+.icon-btn:focus-visible,
+[role="button"]:focus-visible {
+  outline: 1px solid var(--c-text-muted);
+  outline-offset: 1px;
 }
 
 /* ---- Form controls ----------------------------------------------------- */
@@ -163,7 +182,7 @@ input:focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: color-mix(in srgb, var(--c-primary) 60%, transparent);
+  border-color: var(--c-text-faint);
 }
 textarea {
   font-family: var(--font-mono);
@@ -172,6 +191,9 @@ textarea {
 }
 select option {
   background: var(--c-panel);
+}
+input[type="checkbox"] {
+  accent-color: var(--c-text-strong);
 }
 label.check {
   display: inline-flex;
@@ -197,61 +219,51 @@ label.check {
 .spacer {
   flex: 1;
 }
-.card {
-  background: var(--c-panel);
+/* A bordered list of rows, the main building block of every view. */
+.list {
   border: 1px solid var(--c-border);
   border-radius: var(--radius);
+  overflow: hidden;
 }
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 18px;
-  white-space: nowrap;
-  background: var(--c-hover);
-  color: var(--c-text);
+.list > * + * {
+  border-top: 1px solid var(--c-border);
 }
-.sev-critical {
-  --sev: var(--c-danger);
-}
-.sev-warning {
-  --sev: var(--c-warning);
-}
-.sev-info {
-  --sev: var(--c-info);
-}
-.sev-success {
-  --sev: var(--c-success);
-}
-.pill.sev-critical,
-.pill.sev-warning,
-.pill.sev-info,
-.pill.sev-success {
-  background: color-mix(in srgb, var(--sev) 16%, transparent);
-  /* Pull the color toward the text color so it stays readable on light themes. */
-  color: color-mix(in srgb, var(--sev) 70%, var(--c-text-strong));
-}
-.sev-icon {
-  color: var(--sev);
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
   flex-shrink: 0;
+  background: var(--c-text-faint);
 }
-
+.dot.critical {
+  background: var(--c-critical);
+}
+.dot.warning {
+  background: var(--c-warning);
+}
+.dot.good {
+  background: var(--c-good);
+}
+.view-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 18px;
+}
+.view-header p {
+  color: var(--c-text-muted);
+}
 .empty {
-  padding: 32px 16px;
+  padding: 40px 16px;
   text-align: center;
   color: var(--c-text-muted);
 }
-
 .spinner {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--c-base) 20%, transparent);
-  border-top-color: var(--c-primary);
+  border: 2px solid color-mix(in srgb, var(--c-base) 15%, transparent);
+  border-top-color: var(--c-text-muted);
   animation: spin 0.8s linear infinite;
   flex-shrink: 0;
 }
@@ -261,7 +273,7 @@ label.check {
   }
 }
 
-/* SQL highlighting */
+/* SQL highlighting uses the app's editor colors. */
 .sql .kw {
   color: var(--c-keyword);
 }
@@ -276,5 +288,5 @@ label.check {
   font-style: italic;
 }
 .sql .param {
-  color: var(--c-info);
+  color: var(--c-text-muted);
 }

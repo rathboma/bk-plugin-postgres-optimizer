@@ -126,6 +126,11 @@ export interface Finding {
   category: CategoryId;
   severity: Severity;
   title: string;
+  /**
+   * Findings with the same group key recommend the same change (e.g. two checks
+   * both suggesting an index on orders(customer_id)) and are shown as one.
+   */
+  groupKey?: string;
   /** Why this matters / what was observed. Plain text. */
   description: string;
   target?: TargetRef;
