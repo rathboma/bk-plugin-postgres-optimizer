@@ -1,0 +1,25 @@
+[
+ {
+  "Plan": {
+   "Node Type": "Seq Scan",
+   "Parallel Aware": false,
+   "Async Capable": false,
+   "Relation Name": "orders",
+   "Schema": "public",
+   "Alias": "orders",
+   "Startup Cost": 0.0,
+   "Total Cost": 2745.0,
+   "Plan Rows": 3,
+   "Plan Width": 30,
+   "Output": [
+    "id",
+    "customer_id",
+    "status",
+    "total",
+    "created_at"
+   ],
+   "Filter": "((orders.total > '100'::numeric) AND (orders.customer_id = 42))"
+  },
+  "Query Identifier": 6924457192362538470
+ }
+]

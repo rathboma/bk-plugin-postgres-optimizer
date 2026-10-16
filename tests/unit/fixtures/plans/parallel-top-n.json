@@ -1,0 +1,86 @@
+[
+ {
+  "Plan": {
+   "Node Type": "Limit",
+   "Parallel Aware": false,
+   "Async Capable": false,
+   "Startup Cost": 17046.14,
+   "Total Cost": 17048.01,
+   "Plan Rows": 16,
+   "Plan Width": 33,
+   "Output": [
+    "id",
+    "customer_id",
+    "status",
+    "total",
+    "created_at"
+   ],
+   "Plans": [
+    {
+     "Node Type": "Gather Merge",
+     "Parent Relationship": "Outer",
+     "Parallel Aware": false,
+     "Async Capable": false,
+     "Startup Cost": 17046.14,
+     "Total Cost": 17048.01,
+     "Plan Rows": 16,
+     "Plan Width": 33,
+     "Output": [
+      "id",
+      "customer_id",
+      "status",
+      "total",
+      "created_at"
+     ],
+     "Workers Planned": 2,
+     "Plans": [
+      {
+       "Node Type": "Sort",
+       "Parent Relationship": "Outer",
+       "Parallel Aware": false,
+       "Async Capable": false,
+       "Startup Cost": 16046.12,
+       "Total Cost": 16046.14,
+       "Plan Rows": 8,
+       "Plan Width": 33,
+       "Output": [
+        "id",
+        "customer_id",
+        "status",
+        "total",
+        "created_at"
+       ],
+       "Sort Key": [
+        "orders.created_at DESC"
+       ],
+       "Plans": [
+        {
+         "Node Type": "Seq Scan",
+         "Parent Relationship": "Outer",
+         "Parallel Aware": true,
+         "Async Capable": false,
+         "Relation Name": "orders",
+         "Schema": "public",
+         "Alias": "orders",
+         "Startup Cost": 0.0,
+         "Total Cost": 16046.0,
+         "Plan Rows": 8,
+         "Plan Width": 33,
+         "Output": [
+          "id",
+          "customer_id",
+          "status",
+          "total",
+          "created_at"
+         ],
+         "Filter": "(orders.customer_id = 4210)"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "Query Identifier": 7532072539740250218
+ }
+]

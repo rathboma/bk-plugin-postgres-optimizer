@@ -1,0 +1,43 @@
+{
+  "id": "bk-plugin-postgres-optimizer",
+  "name": "Postgres Optimizer",
+  "author": {
+    "name": "Beekeeper Studio",
+    "url": "https://beekeeperstudio.io"
+  },
+  "description": "Find slow queries, missing and unused indexes, and other performance problems in PostgreSQL.",
+  "version": "0.1.0",
+  "minAppVersion": "5.4.0",
+  "icon": "speed",
+  "manifestVersion": 1,
+  "capabilities": {
+    "views": [
+      {
+        "id": "optimizer",
+        "name": "Postgres Optimizer",
+        "type": "base-tab",
+        "entry": "dist/index.html"
+      }
+    ],
+    "menu": [
+      {
+        "command": "open-optimizer",
+        "name": "Postgres Optimizer",
+        "view": "optimizer",
+        "placement": "newTabDropdown"
+      },
+      {
+        "command": "open-optimizer-tools",
+        "name": "Postgres Optimizer",
+        "view": "optimizer",
+        "placement": "menubar.tools"
+      },
+      {
+        "command": "analyze-query",
+        "name": "Analyze Query Performance",
+        "view": "optimizer",
+        "placement": "editor.query.context"
+      }
+    ]
+  }
+}
